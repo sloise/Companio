@@ -1,93 +1,213 @@
 import { useEffect, useState } from "react";
 import api, { errorMessage } from "../../api/client";
+import { useFeedback } from "../../context/feedback";
 import MatchBadge from "../../components/MatchBadge";
+import PetPhoto from "../../components/PetPhoto";
 import StatusPill from "../../components/StatusPill";
+import { LoadError, Skeleton } from "../../components/PageStates";
 import { EXPERIENCE_LABEL } from "../../constants";
+import { formatDate, timeAgo } from "../../utils/format";
 
-export default function ReviewBoard() {
-  const [applications, setApplications] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("Pending");
-  const [selectedId, setSelectedId] = useState(null);
-  const [staffNotes, setStaffNotes] = useState("");
-  const [loading, setLoading] = useState(true);
+const STATUS_TABS = [
+  { value: "Pending", label: "Pending" },
+  { value: "Approved", label: "Approved" },
+  { value: "Rejected", label: "Rejected" },
+  { value: "Withdrawn", label: "Withdrawn" },
+  { value: "", label: "All" },
+];
 
-  // READ
-  const getApplications = async () => {
-    try {
-      const response = await api.get("/admin/applications", {
-        params: { status: statusFilter || undefined },
-      });
-      setApplications(response.data);
-    } catch (error) {
-      alert(errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    getApplications();
-  }, [statusFilter]);
-
-  // the application shown on the right (first one if nothing is picked)
-  const selected = applications.find((a) => a.id === selectedId) || applications[0] || null;
-
-  // load the saved note whenever a different application is shown
-  useEffect(() => {
-    setStaffNotes(selected?.staff_notes || "");
-  }, [selected?.id]);
+// Staff notes + the Approve / Reject / Reopen buttons for one application.
+// It gets a new "key" for every application, so the notes box starts fresh each time.
+function DecisionPanel({ application, onChanged }) {
+  const { notify, confirm } = useFeedback();
+  const [staffNotes, setStaffNotes] = useState(application.staff_notes || "");
+  const [busy, setBusy] = useState(false);
 
   // UPDATE - approve or reject
   const decide = async (status) => {
-    const confirmed = window.confirm(
-      status === "Approved"
-        ? `Approve ${selected.full_name} to foster ${selected.animal.name}? Other requests for this pet will be closed.`
-        : `Reject the request of ${selected.full_name}?`
-    );
+    const approving = status === "Approved";
+    const confirmed = await confirm({
+      title: approving
+        ? `Approve ${application.full_name} to foster ${application.animal.name}?`
+        : `Reject ${application.full_name}'s request?`,
+      message: approving
+        ? "A placement starts on their target date. Other pending requests for this pet will be closed and those applicants notified."
+        : "The applicant will be notified. You can reopen it later if this was a mistake.",
+      confirmLabel: approving ? "Approve placement" : "Reject request",
+      danger: !approving,
+    });
 
     if (!confirmed) {
       return;
     }
 
+    setBusy(true);
     try {
-      await api.patch(`/admin/applications/${selected.id}`, {
+      await api.patch(`/admin/applications/${application.id}`, {
         status,
         staff_notes: staffNotes || null,
       });
-
-      alert(`Application ${status.toLowerCase()}!`);
-      setSelectedId(null);
-      getApplications();
+      notify(approving ? `Approved! ${application.animal.name} is now in foster care.` : "Request rejected. The applicant was notified.");
+      onChanged();
     } catch (error) {
-      console.error(error);
-      alert(errorMessage(error));
+      notify(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
     }
   };
 
+  // UPDATE - undo a rejection
+  const reopen = async () => {
+    const confirmed = await confirm({
+      title: `Reopen ${application.full_name}'s request?`,
+      message: "It goes back to Pending so you can decide again. The applicant will be notified.",
+      confirmLabel: "Reopen request",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await api.patch(`/admin/applications/${application.id}/reopen`);
+      notify(response.data.message);
+      onChanged("Pending");
+    } catch (error) {
+      notify(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pending = application.status === "Pending";
+
+  return (
+    <div className="card stack-sm">
+      <label className="field">
+        Staff notes
+        <textarea
+          rows="3"
+          placeholder="Shown to the applicant with your decision"
+          value={staffNotes}
+          onChange={(e) => setStaffNotes(e.target.value)}
+          disabled={!pending}
+        />
+      </label>
+
+      {pending ? (
+        <div className="actions">
+          <button type="button" className="btn btn-danger-outline" onClick={() => decide("Rejected")} disabled={busy}>
+            Reject
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => decide("Approved")} disabled={busy}>
+            Approve placement
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="muted small">
+            {application.status === "Withdrawn"
+              ? `The applicant withdrew this request ${timeAgo(application.updated_at)}.`
+              : `${application.status} ${application.decider ? `by ${application.decider.name} ` : ""}${timeAgo(application.decided_at || application.updated_at)}.`}
+          </p>
+          {application.status === "Rejected" && (
+            <button type="button" className="btn btn-outline" onClick={reopen} disabled={busy}>
+              ↺ Reopen this request
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function ReviewBoard() {
+  const [applications, setApplications] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reload, setReload] = useState(0); // bump to load the list again
+
+  // READ
+  useEffect(() => {
+    const getApplications = async () => {
+      try {
+        const response = await api.get("/admin/applications", {
+          params: { status: statusFilter || undefined, search: search || undefined },
+        });
+        setApplications(response.data);
+        setLoadError("");
+      } catch (error) {
+        setLoadError(errorMessage(error));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // wait a moment while the admin is still typing
+    const timer = setTimeout(getApplications, 250);
+    return () => clearTimeout(timer);
+  }, [statusFilter, search, reload]);
+
+  // after a decision: refresh the list (optionally jumping to another tab)
+  const handleChanged = (goToStatus) => {
+    setSelectedId(null);
+    if (goToStatus) {
+      setStatusFilter(goToStatus);
+    }
+    setReload((count) => count + 1);
+  };
+
+  // the application shown on the right (first one if nothing is picked)
+  const selected = applications.find((a) => a.id === selectedId) || applications[0] || null;
   const profile = selected?.user?.volunteer_profile;
 
   return (
     <div className="stack">
       <div className="page-head">
-        <h1>Application review</h1>
+        <div>
+          <h1>Application review</h1>
+          <p className="muted">Check how each home fits the pet&apos;s care rules, then approve or reject.</p>
+        </div>
+      </div>
 
-        <label className="inline-field">
-          Show
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelectedId(null); }}>
-            <option value="Pending">Pending</option>
-            <option value="Approved">Approved</option>
-            <option value="Rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+      <div className="card filters">
+        <label className="filter-search">
+          <span className="sr-only">Search applications</span>
+          <input
+            type="search"
+            placeholder="Search applicant, email or pet"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setSelectedId(null); }}
+          />
         </label>
+
+        <div className="segmented status-tabs" role="group" aria-label="Filter by status">
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.label}
+              type="button"
+              className={statusFilter === tab.value ? "seg seg-active" : "seg"}
+              aria-pressed={statusFilter === tab.value}
+              onClick={() => { setStatusFilter(tab.value); setSelectedId(null); }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
-        <p className="muted">Loading...</p>
+        <Skeleton rows={2} height={220} />
+      ) : loadError ? (
+        <LoadError message={loadError} onRetry={() => setReload((count) => count + 1)} />
       ) : applications.length === 0 ? (
         <div className="card empty">
           <h2>No applications here</h2>
-          <p className="muted">New foster requests will appear in this list.</p>
+          <p className="muted">{search ? "Nothing matches your search." : "New foster requests will appear in this list."}</p>
         </div>
       ) : (
         <div className="review-layout">
@@ -97,11 +217,17 @@ export default function ReviewBoard() {
                 type="button"
                 key={application.id}
                 className={selected && application.id === selected.id ? "queue-item queue-active" : "queue-item"}
+                aria-current={selected && application.id === selected.id ? "true" : undefined}
                 onClick={() => setSelectedId(application.id)}
               >
-                <span>
+                {application.animal && (
+                  <span className="queue-thumb" aria-hidden="true">
+                    <PetPhoto pet={application.animal} />
+                  </span>
+                )}
+                <span className="queue-text">
                   <strong>{application.full_name}</strong>
-                  <small>for {application.animal?.name} · {new Date(application.created_at).toLocaleDateString()}</small>
+                  <small>for {application.animal?.name} · {timeAgo(application.created_at)}</small>
                 </span>
                 <span className="queue-score">{application.match_score}%</span>
               </button>
@@ -163,34 +289,10 @@ export default function ReviewBoard() {
                 <div className="card stack-sm">
                   <h3>Applicant&apos;s message</h3>
                   <p>{selected.message || "No message."}</p>
-                  <p className="muted small">Target foster date: {selected.target_date}</p>
+                  <p className="muted small">Wants to start {formatDate(selected.target_date)}</p>
                 </div>
 
-                <div className="card stack-sm">
-                  <label className="field">
-                    <strong>Staff notes</strong>
-                    <textarea
-                      rows="3"
-                      placeholder="Visible to staff and shown to the applicant"
-                      value={staffNotes}
-                      onChange={(e) => setStaffNotes(e.target.value)}
-                      disabled={selected.status !== "Pending"}
-                    />
-                  </label>
-
-                  {selected.status === "Pending" ? (
-                    <div className="actions">
-                      <button type="button" className="btn btn-danger-outline" onClick={() => decide("Rejected")}>
-                        Reject
-                      </button>
-                      <button type="button" className="btn btn-primary" onClick={() => decide("Approved")}>
-                        Approve placement
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="muted small">This application was already {selected.status.toLowerCase()}.</p>
-                  )}
-                </div>
+                <DecisionPanel key={selected.id} application={selected} onChanged={handleChanged} />
               </div>
             </section>
           )}

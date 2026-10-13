@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api, { errorMessage } from "../../api/client";
+import { useFeedback } from "../../context/feedback";
 import OptionGroup from "../../components/OptionGroup";
 import PetPhoto from "../../components/PetPhoto";
 import StatusPill from "../../components/StatusPill";
+import AnimalHistory from "../../components/AnimalHistory";
+import { LoadError, Skeleton } from "../../components/PageStates";
+import { formatDate } from "../../utils/format";
 import { ANIMAL_HOURS, ANIMAL_KIDS, CAT_BREEDS, DOG_BREEDS, STATUSES } from "../../constants";
 
 const OTHER_BREED = "__other";
@@ -25,6 +29,7 @@ const EMPTY_FORM = {
   kids_ok: "any",
   max_hours_alone: 8,
   is_urgent: false,
+  needed_by: "",
   status: "Awaiting Foster",
 };
 
@@ -60,7 +65,13 @@ function resizeImage(file, maxSize = 800) {
 }
 
 export default function Animals() {
+  const { notify, confirm } = useFeedback();
+
   const [animals, setAnimals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reload, setReload] = useState(0); // bump to load the list again
+  const [historyFor, setHistoryFor] = useState(null); // animal whose history window is open
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -72,33 +83,40 @@ export default function Animals() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // READ
-  const getAnimals = async () => {
-    try {
-      const response = await api.get("/admin/animals", {
-        params: {
-          search: filters.search || undefined,
-          species: filters.species || undefined,
-          status: filters.status || undefined,
-        },
-      });
-      setAnimals(response.data);
-    } catch (error) {
-      console.error("Error loading animals:", error);
-    }
-  };
-
   useEffect(() => {
+    const getAnimals = async () => {
+      try {
+        const response = await api.get("/admin/animals", {
+          params: {
+            search: filters.search || undefined,
+            species: filters.species || undefined,
+            status: filters.status || undefined,
+          },
+        });
+        setAnimals(response.data);
+        setLoadError("");
+      } catch (error) {
+        setLoadError(errorMessage(error));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // wait a moment while the admin is still typing
     const timer = setTimeout(getAnimals, 250);
     return () => clearTimeout(timer);
-  }, [filters]);
+  }, [filters, reload]);
+
+  const refreshAnimals = () => setReload((count) => count + 1);
 
   // the dashboard's "+ Add animal" button links here with ?new=1
+  // (removing ?new=1 right away means this only opens the form once)
   useEffect(() => {
     if (searchParams.get("new")) {
       dialogRef.current?.showModal();
       setSearchParams({}, { replace: true });
     }
-  }, []);
+  }, [searchParams, setSearchParams]);
 
   // FORM WINDOW
   const openForm = () => {
@@ -161,7 +179,7 @@ export default function Animals() {
     }
 
     if (!file.type.startsWith("image/")) {
-      alert("Please choose an image file.");
+      notify("Please choose an image file.", "error");
       return;
     }
 
@@ -170,7 +188,7 @@ export default function Animals() {
       setFormData((current) => ({ ...current, photo_url: photo }));
     } catch (error) {
       console.error(error);
-      alert("That image could not be read. Try another file.");
+      notify("That image could not be read. Try another file.", "error");
     }
   };
 
@@ -203,24 +221,25 @@ export default function Animals() {
       description: formData.description || null,
       photo_url: formData.photo_url || null,
       max_hours_alone: Number(formData.max_hours_alone),
+      needed_by: formData.is_urgent && formData.needed_by ? formData.needed_by : null,
     };
 
     try {
       if (editingId) {
         // UPDATE
         await api.put(`/admin/animals/${editingId}`, payload);
-        alert("Animal updated successfully!");
+        notify(`${formData.name} updated.`);
       } else {
         // CREATE
         await api.post("/admin/animals", payload);
-        alert("Animal added successfully!");
+        notify(`${formData.name} added. Volunteers can see them now.`);
       }
 
       closeForm();
-      getAnimals();
+      refreshAnimals();
     } catch (error) {
       console.error(error);
-      alert(errorMessage(error));
+      notify(errorMessage(error), "error");
     }
   };
 
@@ -246,6 +265,7 @@ export default function Animals() {
       kids_ok: animal.kids_ok,
       max_hours_alone: animal.max_hours_alone,
       is_urgent: animal.is_urgent,
+      needed_by: animal.needed_by || "",
       status: animal.status,
     });
 
@@ -254,9 +274,12 @@ export default function Animals() {
 
   // DELETE
   const deleteAnimal = async (animal) => {
-    const confirmDelete = window.confirm(
-      `Delete ${animal.name}? Their applications and placements will be deleted too.`
-    );
+    const confirmDelete = await confirm({
+      title: `Delete ${animal.name}?`,
+      message: "Their applications, placements and history will be deleted too. This can't be undone.",
+      confirmLabel: "Delete animal",
+      danger: true,
+    });
 
     if (!confirmDelete) {
       return;
@@ -264,11 +287,11 @@ export default function Animals() {
 
     try {
       await api.delete(`/admin/animals/${animal.id}`);
-      alert("Animal deleted successfully!");
-      getAnimals();
+      notify(`${animal.name} was deleted.`, "info");
+      refreshAnimals();
     } catch (error) {
       console.error(error);
-      alert(errorMessage(error));
+      notify(errorMessage(error), "error");
     }
   };
 
@@ -322,7 +345,11 @@ export default function Animals() {
         ))}
       </div>
 
-      {animals.length === 0 ? (
+      {loading ? (
+        <Skeleton rows={2} height={260} />
+      ) : loadError ? (
+        <LoadError message={loadError} onRetry={refreshAnimals} />
+      ) : animals.length === 0 ? (
         <div className="card empty">
           <h2>No animals found</h2>
           <p className="muted">Try a different search or filter, or add a new animal.</p>
@@ -338,7 +365,11 @@ export default function Animals() {
                 <PetPhoto pet={animal} />
                 <div className="animal-card-flags">
                   <StatusPill status={animal.status} />
-                  {animal.is_urgent && <span className="badge badge-urgent">Urgent</span>}
+                  {animal.is_urgent && (
+                    <span className="badge badge-urgent">
+                      Urgent{animal.needed_by ? ` · by ${formatDate(animal.needed_by)}` : ""}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -363,6 +394,9 @@ export default function Animals() {
                 <div className="animal-card-actions">
                   <button type="button" className="btn btn-outline btn-sm" onClick={() => editAnimal(animal)}>
                     Edit
+                  </button>
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => setHistoryFor(animal)}>
+                    History
                   </button>
                   <button type="button" className="btn btn-danger btn-sm" onClick={() => deleteAnimal(animal)}>
                     Delete
@@ -537,6 +571,14 @@ export default function Animals() {
                 ))}
               </div>
 
+              {formData.is_urgent && (
+                <label className="field deadline-field">
+                  Needs a home by (optional)
+                  <input type="date" name="needed_by" value={formData.needed_by} onChange={handleChange} />
+                  <span className="field-hint">Shown to volunteers on the urgent badge and on your dashboard.</span>
+                </label>
+              )}
+
               <fieldset className="plain">
                 <legend>Children</legend>
                 <OptionGroup
@@ -569,6 +611,8 @@ export default function Animals() {
           </div>
         </form>
       </dialog>
+
+      {historyFor && <AnimalHistory animal={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>
   );
 }
