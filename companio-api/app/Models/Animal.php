@@ -27,6 +27,7 @@ class Animal extends Model
         'kids_ok',
         'max_hours_alone',
         'is_urgent',
+        'needed_by',
         'status',
     ];
 
@@ -39,6 +40,7 @@ class Animal extends Model
             'good_with_dogs' => 'boolean',
             'is_urgent' => 'boolean',
             'max_hours_alone' => 'integer',
+            'needed_by' => 'date:Y-m-d',
         ];
     }
 
@@ -50,5 +52,10 @@ class Animal extends Model
     public function placements()
     {
         return $this->hasMany(Placement::class);
+    }
+
+    public function events()
+    {
+        return $this->hasMany(AnimalEvent::class);
     }
 }

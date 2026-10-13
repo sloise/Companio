@@ -17,6 +17,8 @@ class FosterApplication extends Model
         'match_score',
         'status',
         'staff_notes',
+        'decided_by',
+        'decided_at',
     ];
 
     protected function casts(): array
@@ -24,6 +26,7 @@ class FosterApplication extends Model
         return [
             'target_date' => 'date:Y-m-d',
             'match_score' => 'integer',
+            'decided_at' => 'datetime',
         ];
     }
 
@@ -40,5 +43,11 @@ class FosterApplication extends Model
     public function placement()
     {
         return $this->hasOne(Placement::class);
+    }
+
+    // the staff member who approved / rejected it
+    public function decider()
+    {
+        return $this->belongsTo(User::class, 'decided_by');
     }
 }

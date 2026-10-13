@@ -40,4 +40,15 @@ class User extends Authenticatable
     {
         return $this->hasMany(FosterApplication::class);
     }
+
+    // pets saved with the heart button
+    public function favoriteAnimals()
+    {
+        return $this->belongsToMany(Animal::class, 'favorites')->withTimestamps();
+    }
+
+    public function appNotifications()
+    {
+        return $this->hasMany(UserNotification::class);
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -71,6 +72,45 @@ class AuthController extends Controller
             'token' => $user->createToken('companio')->plainTextToken,
             'user' => $user,
         ]);
+    }
+
+    // FORGOT PASSWORD - emails a reset link.
+    // Always gives the same answer so nobody can use this to check which emails have accounts.
+    public function forgotPassword(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        Password::sendResetLink($request->only('email'));
+
+        return response()->json([
+            'message' => 'If that email has an account, a reset link is on its way. Check your inbox.',
+        ]);
+    }
+
+    // RESET PASSWORD - uses the token from the email link
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'token' => 'required|string',
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|max:100|confirmed',
+        ]);
+
+        $status = Password::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function (User $user, string $password) {
+                $user->forceFill(['password' => $password])->save(); // hashed by the User model cast
+                $user->tokens()->delete(); // log out every device
+            }
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            throw ValidationException::withMessages([
+                'email' => ['This reset link is invalid or has expired. Please request a new one.'],
+            ]);
+        }
+
+        return response()->json(['message' => 'Your password was changed. You can sign in now.']);
     }
 
     // CURRENT USER

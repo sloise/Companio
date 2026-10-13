@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Animal;
+use App\Models\AnimalEvent;
 use Illuminate\Http\Request;
 
 // Admin CRUD for rescue animal profiles
@@ -33,6 +34,7 @@ class AnimalController extends Controller
             'kids_ok' => 'required|in:any,older,none',
             'max_hours_alone' => 'required|in:4,8,12',
             'is_urgent' => 'required|boolean',
+            'needed_by' => 'nullable|date',
             'status' => 'required|in:Awaiting Foster,Under Review,In Foster Care,Adopted',
         ];
     }
@@ -53,9 +55,11 @@ class AnimalController extends Controller
     // CREATE
     public function store(Request $request)
     {
-        $validated = $request->validate($this->rules());
+        $validated = $this->withDeadline($request->validate($this->rules()));
 
         $animal = Animal::create($validated);
+
+        AnimalEvent::log($animal->id, "Added to Companio by {$request->user()->name}", $request->user()->id);
 
         return response()->json([
             'message' => 'Animal profile created successfully.',
@@ -72,14 +76,51 @@ class AnimalController extends Controller
     // UPDATE
     public function update(Request $request, Animal $animal)
     {
-        $validated = $request->validate($this->rules());
+        $validated = $this->withDeadline($request->validate($this->rules()));
+        $oldStatus = $animal->status;
 
         $animal->update($validated);
+
+        if ($oldStatus !== $animal->status) {
+            AnimalEvent::log(
+                $animal->id,
+                "Status changed from {$oldStatus} to {$animal->status} by {$request->user()->name}",
+                $request->user()->id
+            );
+        }
 
         return response()->json([
             'message' => 'Animal profile updated successfully.',
             'animal' => $animal,
         ]);
+    }
+
+    // READ - everything that happened to this animal, newest first
+    public function history(Animal $animal)
+    {
+        $events = $animal->events()
+            ->latest('id')
+            ->get(['id', 'message', 'created_at'])
+            ->toArray();
+
+        // animals added before history was recorded still show when they were added
+        $hasAddedEvent = collect($events)->contains(fn ($event) => str_starts_with($event['message'], 'Added to Companio'));
+
+        if (! $hasAddedEvent) {
+            $events[] = ['id' => 0, 'message' => 'Added to Companio', 'created_at' => $animal->created_at];
+        }
+
+        return response()->json($events);
+    }
+
+    // only urgent animals keep a "needs a home by" date
+    private function withDeadline(array $validated): array
+    {
+        if (! $validated['is_urgent']) {
+            $validated['needed_by'] = null;
+        }
+
+        return $validated;
     }
 
     // DELETE

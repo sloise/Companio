@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Animal;
 use App\Models\FosterApplication;
 use App\Models\Placement;
+use App\Models\User;
 
 class DashboardController extends Controller
 {
@@ -46,10 +47,40 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        // urgent animals with a "needs a home by" date, soonest first
+        $deadlines = Animal::where('is_urgent', true)
+            ->whereNotNull('needed_by')
+            ->whereIn('status', Animal::OPEN_STATUSES)
+            ->orderBy('needed_by')
+            ->limit(5)
+            ->get(['id', 'name', 'species', 'status', 'needed_by']);
+
+        // active placements past their expected return date
+        $overdue = Placement::with(['animal:id,name', 'application:id,full_name'])
+            ->where('status', 'Active')
+            ->whereDate('expected_return_date', '<', now()->toDateString())
+            ->orderBy('expected_return_date')
+            ->limit(5)
+            ->get();
+
         return response()->json([
             'stats' => $stats,
             'stages' => $stages,
             'recent_applications' => $recent,
+            'deadlines' => $deadlines,
+            'overdue_placements' => $overdue,
+        ]);
+    }
+
+    // READ - small numbers for the sidebar badges
+    public function counts()
+    {
+        return response()->json([
+            'pending_applications' => FosterApplication::where('status', 'Pending')->count(),
+            'overdue_placements' => Placement::where('status', 'Active')
+                ->whereDate('expected_return_date', '<', now()->toDateString())
+                ->count(),
+            'staff_requests' => User::where('role', 'staff_pending')->count(),
         ]);
     }
 }

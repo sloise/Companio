@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Animal;
+use App\Models\AnimalEvent;
 use App\Models\FosterApplication;
 use App\Models\Placement;
+use App\Models\UserNotification;
 use App\Services\MatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -80,16 +82,18 @@ class FosterApplicationController extends Controller
             $animal->update(['status' => 'Under Review']);
         }
 
+        AnimalEvent::log($animal->id, "{$application->full_name} sent a foster request ({$result['score']}% match)", $user->id);
+
         return response()->json([
             'message' => 'Foster request sent successfully.',
             'application' => $application->load('animal'),
         ], 201);
     }
 
-    // READ - the logged-in volunteer's own requests
+    // READ - the logged-in volunteer's own requests (with the placement, for the timeline)
     public function mine(Request $request)
     {
-        $applications = FosterApplication::with('animal')
+        $applications = FosterApplication::with(['animal', 'placement'])
             ->where('user_id', $request->user()->id)
             ->latest('id')
             ->get();
@@ -97,15 +101,44 @@ class FosterApplicationController extends Controller
         return response()->json($applications);
     }
 
+    // UPDATE - volunteer cancels their own pending request
+    public function withdraw(Request $request, FosterApplication $application)
+    {
+        if ($application->user_id !== $request->user()->id) {
+            return response()->json(['message' => 'This is not your application.'], 403);
+        }
+
+        if ($application->status !== 'Pending') {
+            return response()->json(['message' => 'Only pending requests can be withdrawn.'], 422);
+        }
+
+        DB::transaction(function () use ($application) {
+            $application->update(['status' => 'Withdrawn']);
+            $this->reopenAnimalIfNobodyWaiting($application->animal);
+
+            AnimalEvent::log($application->animal_id, "{$application->full_name} withdrew their request", $application->user_id);
+        });
+
+        return response()->json(['message' => 'Your request was withdrawn.']);
+    }
+
     // ---------------------------------------------------------------
     // ADMIN
     // ---------------------------------------------------------------
 
     // READ - review board list, with the live compatibility breakdown
+    // Optional query: status, search (applicant name, email or pet name)
     public function index(Request $request)
     {
-        $applications = FosterApplication::with(['user.volunteerProfile', 'animal'])
+        $applications = FosterApplication::with(['user.volunteerProfile', 'animal', 'decider:id,name'])
             ->when($request->status, fn ($q, $value) => $q->where('status', $value))
+            ->when($request->search, function ($q, $value) {
+                $q->where(function ($q) use ($value) {
+                    $q->where('full_name', 'like', "%{$value}%")
+                        ->orWhereHas('user', fn ($u) => $u->where('email', 'like', "%{$value}%"))
+                        ->orWhereHas('animal', fn ($a) => $a->where('name', 'like', "%{$value}%"));
+                });
+            })
             ->latest('id')
             ->get()
             ->map(function ($application) {
@@ -135,6 +168,7 @@ class FosterApplicationController extends Controller
         }
 
         $animal = $application->animal;
+        $admin = $request->user();
 
         if ($validated['status'] === 'Approved' && ! in_array($animal->status, Animal::OPEN_STATUSES, true)) {
             return response()->json([
@@ -142,8 +176,12 @@ class FosterApplicationController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($application, $animal, $validated) {
-            $application->update($validated);
+        DB::transaction(function () use ($application, $animal, $validated, $admin) {
+            $application->update([
+                ...$validated,
+                'decided_by' => $admin->id,
+                'decided_at' => now(),
+            ]);
 
             if ($validated['status'] === 'Approved') {
                 // start the placement
@@ -157,23 +195,43 @@ class FosterApplicationController extends Controller
 
                 $animal->update(['status' => 'In Foster Care']);
 
+                AnimalEvent::log($animal->id, "{$admin->name} approved {$application->full_name} as foster", $admin->id);
+                UserNotification::send(
+                    $application->user_id,
+                    "Great news! Your request to foster {$animal->name} was approved.",
+                    '/applications'
+                );
+
                 // everybody else who asked for this animal is closed automatically
-                FosterApplication::where('animal_id', $animal->id)
+                $others = FosterApplication::where('animal_id', $animal->id)
                     ->where('status', 'Pending')
                     ->where('id', '!=', $application->id)
-                    ->update([
+                    ->get();
+
+                foreach ($others as $other) {
+                    $other->update([
                         'status' => 'Rejected',
                         'staff_notes' => 'Another applicant was approved for this animal.',
+                        'decided_by' => $admin->id,
+                        'decided_at' => now(),
                     ]);
-            } else {
-                // rejected: if nobody else is waiting, the animal is available again
-                $othersWaiting = FosterApplication::where('animal_id', $animal->id)
-                    ->where('status', 'Pending')
-                    ->exists();
 
-                if (! $othersWaiting && $animal->status === 'Under Review') {
-                    $animal->update(['status' => 'Awaiting Foster']);
+                    UserNotification::send(
+                        $other->user_id,
+                        "{$animal->name} was placed with another foster. Thank you for applying!",
+                        '/applications'
+                    );
                 }
+            } else {
+                AnimalEvent::log($animal->id, "{$admin->name} rejected {$application->full_name}'s request", $admin->id);
+                UserNotification::send(
+                    $application->user_id,
+                    "Your request to foster {$animal->name} was not approved this time.",
+                    '/applications'
+                );
+
+                // rejected: if nobody else is waiting, the animal is available again
+                $this->reopenAnimalIfNobodyWaiting($animal);
             }
         });
 
@@ -181,5 +239,59 @@ class FosterApplicationController extends Controller
             'message' => "Application {$validated['status']}.",
             'application' => $application->fresh()->load(['user', 'animal']),
         ]);
+    }
+
+    // UPDATE - undo a rejection: the application goes back to Pending
+    public function reopen(Request $request, FosterApplication $application)
+    {
+        if ($application->status !== 'Rejected') {
+            return response()->json(['message' => 'Only rejected applications can be reopened.'], 422);
+        }
+
+        $animal = $application->animal;
+
+        if (! in_array($animal->status, Animal::OPEN_STATUSES, true)) {
+            return response()->json([
+                'message' => "{$animal->name} is already placed, so this request can't be reopened.",
+            ], 422);
+        }
+
+        $admin = $request->user();
+
+        DB::transaction(function () use ($application, $animal, $admin) {
+            $application->update([
+                'status' => 'Pending',
+                'decided_by' => null,
+                'decided_at' => null,
+            ]);
+
+            if ($animal->status === 'Awaiting Foster') {
+                $animal->update(['status' => 'Under Review']);
+            }
+
+            AnimalEvent::log($animal->id, "{$admin->name} reopened {$application->full_name}'s request", $admin->id);
+            UserNotification::send(
+                $application->user_id,
+                "Your request to foster {$animal->name} is being reviewed again.",
+                '/applications'
+            );
+        });
+
+        return response()->json([
+            'message' => 'Application reopened. It is back in the Pending list.',
+            'application' => $application->fresh()->load(['user', 'animal']),
+        ]);
+    }
+
+    // an animal "Under Review" with no pending requests left goes back to "Awaiting Foster"
+    private function reopenAnimalIfNobodyWaiting(Animal $animal): void
+    {
+        $othersWaiting = FosterApplication::where('animal_id', $animal->id)
+            ->where('status', 'Pending')
+            ->exists();
+
+        if (! $othersWaiting && $animal->status === 'Under Review') {
+            $animal->update(['status' => 'Awaiting Foster']);
+        }
     }
 }
