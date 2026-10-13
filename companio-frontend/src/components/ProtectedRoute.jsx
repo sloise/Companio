@@ -1,5 +1,5 @@
 import { Navigate, Outlet } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/auth";
 
 // Wrap pages that need a login. role="admin" or role="volunteer" limits who can enter.
 export default function ProtectedRoute({ role }) {

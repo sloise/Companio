@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import PetPhoto from "./PetPhoto";
+import SaveButton from "./SaveButton";
+import { formatDate } from "../utils/format";
 
 // Short label for each care rule, e.g. "Apartment OK" or "Needs fenced yard"
 function tagText(key, pet) {
@@ -24,7 +26,7 @@ function tagText(key, pet) {
   }
 }
 
-export default function MatchRow({ pet }) {
+export default function MatchRow({ pet, saved, onToggleSave }) {
   // up to 3 tags: every rule that doesn't fit, topped up with ones that do (fits shown first)
   const failed = pet.match.checks.filter((check) => !check.ok);
   const passed = pet.match.checks.filter((check) => check.ok);
@@ -34,6 +36,7 @@ export default function MatchRow({ pet }) {
     <article className="match-row">
       <div className="match-row-photo">
         <PetPhoto pet={pet} />
+        <SaveButton pet={pet} saved={saved} onToggle={onToggleSave} />
       </div>
 
       <div className="match-row-info">
@@ -43,7 +46,11 @@ export default function MatchRow({ pet }) {
             {pet.species === "cat" ? "Cat" : "Dog"} · {pet.age}
             {pet.sex ? ` · ${pet.sex[0]}` : ""}
           </span>
-          {pet.is_urgent && <span className="badge badge-urgent">Urgent</span>}
+          {pet.is_urgent && (
+            <span className="badge badge-urgent">
+              Urgent{pet.needed_by ? ` · by ${formatDate(pet.needed_by)}` : ""}
+            </span>
+          )}
         </div>
 
         <ul className="fit-tags" aria-label="Care rules">

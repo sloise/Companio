@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/auth";
 import { errorMessage } from "../api/client";
+import { useFeedback } from "../context/feedback";
 import Logo from "../components/Logo";
 
 const ROLES = [
@@ -40,6 +41,7 @@ const EMPTY_FORM = {
 export default function Login() {
   const { user, login, register } = useAuth();
   const navigate = useNavigate();
+  const { notify } = useFeedback();
 
   const [mode, setMode] = useState("login"); // "login" or "register"
   const [form, setForm] = useState(EMPTY_FORM);
@@ -100,7 +102,7 @@ export default function Login() {
         navigate("/questionnaire"); // new volunteers answer the questionnaire first
       }
     } catch (error) {
-      alert(errorMessage(error));
+      notify(errorMessage(error), "error");
     } finally {
       setBusy(false);
     }
@@ -187,14 +189,17 @@ export default function Login() {
             required
           />
           {isRegister && <span className="field-hint">At least 8 characters</span>}
+          {!isRegister && (
+            <Link className="field-hint forgot-link" to="/forgot-password">Forgot password?</Link>
+          )}
         </label>
 
         <button type="submit" className="btn btn-primary btn-xl" disabled={busy}>
           {busy ? "Please wait..." : submitLabel}
         </button>
 
-        {/* Demo logins from the seeder - remove before the final deployment */}
-        {!isRegister && (
+        {/* Demo logins from the seeder - only shown while developing (npm run dev), never on the live site */}
+        {import.meta.env.DEV && !isRegister && (
           <p className="hint">
             Demo: <code>andrea@companio.test</code> (volunteer) or{" "}
             <code>admin@companio.test</code> (shelter admin). Password: <code>password</code>

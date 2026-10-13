@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/auth";
 import Logo from "./Logo";
+import NotificationBell from "./NotificationBell";
 
 export default function VolunteerLayout() {
   const { user, logout } = useAuth();
@@ -54,6 +55,8 @@ export default function VolunteerLayout() {
             <NavLink to="/applications" data-tour="nav-applications">Applications</NavLink>
             <NavLink to="/questionnaire" data-tour="nav-profile">Home profile</NavLink>
           </nav>
+
+          <NotificationBell />
 
           <div className="user-menu" ref={menuRef}>
             <button

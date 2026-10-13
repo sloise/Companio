@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/auth";
+import { useFeedback } from "../context/feedback";
 import PetPhoto from "../components/PetPhoto";
 import StatusPill from "../components/StatusPill";
+import SaveButton from "../components/SaveButton";
+import { LoadError, Skeleton } from "../components/PageStates";
+import useSavedPets from "../utils/useSavedPets";
+import { formatDate } from "../utils/format";
 
 // today's date in the browser's own time zone (yyyy-mm-dd), used as the earliest foster date
 function today() {
@@ -15,9 +20,13 @@ export default function PetDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { notify } = useFeedback();
+  const { isSaved, toggleSaved } = useSavedPets();
 
   const [pet, setPet] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reload, setReload] = useState(0); // bump to try loading again
   const [sending, setSending] = useState(false);
 
   // the volunteer's name is filled in from their account
@@ -36,19 +45,23 @@ export default function PetDetail() {
       try {
         const response = await api.get(`/matches/${id}`);
         setPet(response.data);
+        setLoadError("");
       } catch (error) {
         if (error.response?.data?.needs_profile) {
           navigate("/questionnaire", { replace: true });
           return;
         }
-        alert(errorMessage(error));
+        // 404 = no such pet (shown below as "Pet not found"); anything else is a loading problem
+        if (error.response?.status !== 404) {
+          setLoadError(errorMessage(error));
+        }
       } finally {
         setLoading(false);
       }
     };
 
     getPet();
-  }, [id, navigate]);
+  }, [id, navigate, reload]);
 
   // INPUT
   const handleChange = (e) => {
@@ -67,17 +80,21 @@ export default function PetDetail() {
 
     try {
       await api.post("/applications", { ...formData, animal_id: pet.id });
-      alert("Foster request sent successfully!");
+      notify(`Foster request for ${pet.name} sent! We'll let you know when the shelter replies.`);
       navigate("/applications");
     } catch (error) {
-      alert(errorMessage(error));
+      notify(errorMessage(error), "error");
     } finally {
       setSending(false);
     }
   };
 
   if (loading) {
-    return <p className="muted">Loading...</p>;
+    return <Skeleton rows={2} height={260} />;
+  }
+
+  if (loadError) {
+    return <LoadError message={loadError} onRetry={() => setReload((count) => count + 1)} />;
   }
 
   if (!pet) {
@@ -104,12 +121,19 @@ export default function PetDetail() {
 
         <div className="pet-hero-info">
           <div className="detail-tags">
-            {pet.is_urgent && <span className="badge badge-urgent">Urgent · needs a home soon</span>}
+            {pet.is_urgent && (
+              <span className="badge badge-urgent">
+                Urgent · needs a home {pet.needed_by ? `by ${formatDate(pet.needed_by)}` : "soon"}
+              </span>
+            )}
             <StatusPill status={pet.status} />
           </div>
 
-          <div>
+          <div className="pet-hero-title">
             <h1>{pet.name}</h1>
+            <SaveButton pet={pet} saved={isSaved(pet.id)} onToggle={toggleSaved} large />
+          </div>
+          <div>
             <p className="muted">
               {pet.breed ? `${pet.breed} · ` : ""}
               {pet.species === "cat" ? "Cat" : "Dog"} · {pet.age}

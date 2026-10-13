@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
+import { useFeedback } from "../context/feedback";
 import OptionGroup from "../components/OptionGroup";
 import { EXPERIENCE, HOURS_ALONE, HOUSING, KIDS, YARD } from "../constants";
 
@@ -18,6 +19,7 @@ const REQUIRED = ["housing_type", "yard", "kids", "hours_alone", "experience"];
 
 export default function Questionnaire() {
   const navigate = useNavigate();
+  const { notify } = useFeedback();
 
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
@@ -67,10 +69,10 @@ export default function Questionnaire() {
         has_dogs: Boolean(form.has_dogs),
         hours_alone: Number(form.hours_alone),
       });
-      alert("Home profile saved!");
+      notify("Home profile saved! Your match scores are up to date.");
       navigate("/matches");
     } catch (error) {
-      alert(errorMessage(error));
+      notify(errorMessage(error), "error");
     } finally {
       setSaving(false);
     }

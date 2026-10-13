@@ -1,7 +1,6 @@
-import { createContext, useContext, useState } from "react";
+import { useState } from "react";
 import api from "../api/client";
-
-const AuthContext = createContext(null);
+import { AuthContext } from "./auth";
 
 function readSavedUser() {
   try {
@@ -56,8 +55,4 @@ export function AuthProvider({ children }) {
   const value = { user, isAdmin: user?.role === "admin", login, register, logout };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  return useContext(AuthContext);
 }

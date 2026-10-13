@@ -5,6 +5,7 @@ import axios from "axios";
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api",
   headers: { Accept: "application/json" },
+  timeout: 15000, // give up after 15 seconds instead of loading forever
 });
 
 // Attach the login token to every request
@@ -37,13 +38,26 @@ api.interceptors.response.use(
 
 // Turns a Laravel error response into text we can show in an alert
 export function errorMessage(error) {
-  const data = error.response?.data;
+  // no answer at all: the server (or the database behind it) is down or too slow
+  if (!error.response) {
+    return "Can't reach the server. Check that Laravel (php artisan serve) and MySQL are running, then try again.";
+  }
+
+  const data = error.response.data;
 
   if (data?.errors) {
     return Object.values(data.errors).flat().join("\n");
   }
 
-  return data?.message || "Something went wrong. Is the Laravel server running?";
+  if (error.response.status === 429) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+
+  if (error.response.status >= 500) {
+    return "The server had a problem. If this keeps happening, check that MySQL is running.";
+  }
+
+  return data?.message || "Something went wrong. Please try again.";
 }
 
 export default api;

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/auth";
 import MatchRow from "../components/MatchRow";
 import Tour from "../components/Tour";
+import { LoadError, Skeleton } from "../components/PageStates";
+import useSavedPets from "../utils/useSavedPets";
 import { MATCH_OPTIONS } from "../constants";
 
 // the welcome tour is "pending" for a user right after they create their account
@@ -28,6 +30,7 @@ const DEFAULT_FILTERS = {
   dogs: true,
   cats: true,
   urgent: false,
+  savedOnly: false,
   min_match: 60,
   sort: "match",
 };
@@ -67,6 +70,12 @@ export default function MatchFeed() {
   const [pets, setPets] = useState([]);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reload, setReload] = useState(0); // bump to try loading again
+
+  // SAVED PETS (heart button)
+  const { saved, isSaved, toggleSaved, forget } = useSavedPets();
+  const foundHomes = saved.filter((pet) => !pet.open);
 
   // SEARCH + FILTER values. Species is filtered here in the browser so the counts stay visible.
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -106,6 +115,11 @@ export default function MatchFeed() {
       target: ".match-row .btn-dark",
       title: "See a pet's profile",
       body: "Open a profile to read about the pet, see how it fits your home, and send a foster request.",
+    },
+    {
+      target: ".match-row .save-btn",
+      title: "Save pets you like",
+      body: "Tap the heart to save a pet. Turn on \"Saved pets only\" in the filters to see them again.",
     },
     {
       target: '[data-tour="nav-applications"]',
@@ -158,12 +172,13 @@ export default function MatchFeed() {
         });
 
         setPets(response.data);
+        setLoadError("");
       } catch (error) {
         if (error.response?.data?.needs_profile) {
           navigate("/questionnaire", { replace: true });
           return;
         }
-        alert(errorMessage(error));
+        setLoadError(errorMessage(error));
       } finally {
         setLoading(false);
       }
@@ -172,7 +187,7 @@ export default function MatchFeed() {
     // wait a moment while the user is still typing
     const timer = setTimeout(getMatches, 250);
     return () => clearTimeout(timer);
-  }, [filters.search, filters.urgent, filters.min_match, filters.sort, navigate]);
+  }, [filters.search, filters.urgent, filters.min_match, filters.sort, navigate, reload]);
 
   // INPUT
   const setFilter = (name, value) => {
@@ -182,7 +197,9 @@ export default function MatchFeed() {
   const dogCount = pets.filter((pet) => pet.species === "dog").length;
   const catCount = pets.length - dogCount;
 
-  const shown = pets.filter((pet) => (pet.species === "dog" ? filters.dogs : filters.cats));
+  const shown = pets.filter(
+    (pet) => (pet.species === "dog" ? filters.dogs : filters.cats) && (!filters.savedOnly || isSaved(pet.id))
+  );
   const firstName = user.name.split(" ")[0];
 
   return (
@@ -244,6 +261,11 @@ export default function MatchFeed() {
           <input type="checkbox" checked={filters.urgent} onChange={(e) => setFilter("urgent", e.target.checked)} />
         </label>
 
+        <label className="filter-toggle">
+          Saved pets only
+          <input type="checkbox" checked={filters.savedOnly} onChange={(e) => setFilter("savedOnly", e.target.checked)} />
+        </label>
+
         {profile && (
           <div className="filter-home">
             <strong>Your home</strong>
@@ -272,18 +294,39 @@ export default function MatchFeed() {
           </label>
         </div>
 
+        {/* saved pets that were placed with someone since they were saved */}
+        {foundHomes.map((pet) => (
+          <div className="notice notice-info found-home" key={pet.id} role="status">
+            <span>
+              <strong>{pet.name}</strong>, who you saved, has found a home
+              {pet.status === "Adopted" ? " and was adopted" : " with a foster"}. 🎉
+            </span>
+            <button type="button" className="link-btn" onClick={() => forget(pet.id)}>
+              Dismiss
+            </button>
+          </div>
+        ))}
+
         {loading ? (
-          <p className="muted">Loading matches...</p>
+          <Skeleton rows={3} height={158} />
+        ) : loadError ? (
+          <LoadError message={loadError} onRetry={() => setReload((count) => count + 1)} />
         ) : shown.length === 0 ? (
           <div className="card empty">
-            <h2>No pets match these filters</h2>
-            <p className="muted">Try a lower match percentage, tick both species or clear the search.</p>
+            <h2>{filters.savedOnly ? "No saved pets here yet" : "No pets match these filters"}</h2>
+            <p className="muted">
+              {filters.savedOnly
+                ? "Tap the heart on any pet to save it."
+                : "Try a lower match percentage, tick both species or clear the search."}
+            </p>
             <button type="button" className="btn btn-outline" onClick={() => setFilters(DEFAULT_FILTERS)}>
               Reset filters
             </button>
           </div>
         ) : (
-          shown.map((pet) => <MatchRow key={pet.id} pet={pet} />)
+          shown.map((pet) => (
+            <MatchRow key={pet.id} pet={pet} saved={isSaved(pet.id)} onToggleSave={toggleSaved} />
+          ))
         )}
       </section>
 
