@@ -90,8 +90,10 @@ export const EXPERIENCE_LABEL = {
   experienced: "Experienced / trained",
 };
 
+// "All" sends min_match=0, so every available pet is shown whatever its score
 export const MATCH_OPTIONS = [
-  { value: 60, label: "60% and up" },
-  { value: 80, label: "80% and up" },
-  { value: 100, label: "100% only" },
+  { value: 0, label: "All", short: "All" },
+  { value: 60, label: "60% and up", short: "60%" },
+  { value: 80, label: "80% and up", short: "80%" },
+  { value: 100, label: "100% only", short: "100%" },
 ];

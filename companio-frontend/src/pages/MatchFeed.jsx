@@ -250,7 +250,7 @@ export default function MatchFeed() {
                 aria-pressed={filters.min_match === option.value}
                 onClick={() => setFilter("min_match", option.value)}
               >
-                {option.value}%
+                {option.short}
               </button>
             ))}
           </div>
