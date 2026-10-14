@@ -296,7 +296,7 @@ export default function Animals() {
   };
 
   return (
-    <div className="stack">
+    <div className="stack animals-page">
       <div className="page-head">
         <div>
           <h1>Rescue animals</h1>
@@ -358,50 +358,55 @@ export default function Animals() {
           </button>
         </div>
       ) : (
-        <div className="animal-grid">
+        <div className="animal-feed">
           {animals.map((animal) => (
-            <article className="animal-card" key={animal.id}>
-              <div className="animal-card-photo">
-                <PetPhoto pet={animal} />
-                <div className="animal-card-flags">
-                  <StatusPill status={animal.status} />
-                  {animal.is_urgent && (
-                    <span className="badge badge-urgent">
-                      Urgent{animal.needed_by ? ` · by ${formatDate(animal.needed_by)}` : ""}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="animal-card-body">
-                <div>
-                  <h3>{animal.name}</h3>
+            <article className="animal-post" key={animal.id} aria-labelledby={`animal-${animal.id}-name`}>
+              <header className="animal-post-head">
+                <span className="animal-post-avatar" aria-hidden="true">
+                  {animal.species === "cat" ? "🐱" : "🐶"}
+                </span>
+                <div className="animal-post-title">
+                  <h3 id={`animal-${animal.id}-name`}>{animal.name}</h3>
                   <p className="muted small">
                     {animal.species === "cat" ? "Cat" : "Dog"} · {animal.age}
                     {animal.sex ? ` · ${animal.sex}` : ""}
                     {animal.breed ? ` · ${animal.breed}` : ""}
                   </p>
                 </div>
-
-                <div className="tags">
-                  <span className="tag">{animal.apartment_ok ? "Apartment OK" : "House only"}</span>
-                  {animal.needs_yard && <span className="tag">Fenced yard</span>}
-                  {animal.good_with_cats && <span className="tag">Cats OK</span>}
-                  {animal.good_with_dogs && <span className="tag">Dogs OK</span>}
-                  <span className="tag">Alone up to {animal.max_hours_alone}h</span>
+                <div className="animal-post-flags">
+                  {animal.is_urgent && (
+                    <span className="badge badge-urgent">
+                      Urgent{animal.needed_by ? ` · by ${formatDate(animal.needed_by)}` : ""}
+                    </span>
+                  )}
+                  <StatusPill status={animal.status} />
                 </div>
+              </header>
 
-                <div className="animal-card-actions">
-                  <button type="button" className="btn btn-outline btn-sm" onClick={() => editAnimal(animal)}>
-                    Edit
-                  </button>
-                  <button type="button" className="btn btn-outline btn-sm" onClick={() => setHistoryFor(animal)}>
-                    History
-                  </button>
-                  <button type="button" className="btn btn-danger btn-sm" onClick={() => deleteAnimal(animal)}>
-                    Delete
-                  </button>
-                </div>
+              {animal.description && <p className="animal-post-text">{animal.description}</p>}
+
+              <div className="animal-post-photo">
+                <PetPhoto pet={animal} />
+              </div>
+
+              <div className="tags animal-post-tags">
+                <span className="tag">{animal.apartment_ok ? "Apartment OK" : "House only"}</span>
+                {animal.needs_yard && <span className="tag">Fenced yard</span>}
+                {animal.good_with_cats && <span className="tag">Cats OK</span>}
+                {animal.good_with_dogs && <span className="tag">Dogs OK</span>}
+                <span className="tag">Alone up to {animal.max_hours_alone}h</span>
+              </div>
+
+              <div className="animal-post-actions">
+                <button type="button" onClick={() => editAnimal(animal)}>
+                  <span aria-hidden="true">✏️</span> Edit
+                </button>
+                <button type="button" onClick={() => setHistoryFor(animal)}>
+                  <span aria-hidden="true">🕑</span> History
+                </button>
+                <button type="button" className="animal-post-delete" onClick={() => deleteAnimal(animal)}>
+                  <span aria-hidden="true">🗑️</span> Delete
+                </button>
               </div>
             </article>
           ))}
