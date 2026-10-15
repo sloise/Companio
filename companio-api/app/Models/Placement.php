@@ -13,6 +13,9 @@ class Placement extends Model
         'expected_return_date',
         'notes',
         'status',
+        'foster_request',
+        'foster_request_note',
+        'foster_requested_at',
     ];
 
     protected function casts(): array
@@ -20,6 +23,7 @@ class Placement extends Model
         return [
             'foster_start_date' => 'date:Y-m-d',
             'expected_return_date' => 'date:Y-m-d',
+            'foster_requested_at' => 'datetime',
         ];
     }
 

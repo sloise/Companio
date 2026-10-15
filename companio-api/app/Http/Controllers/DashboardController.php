@@ -81,6 +81,7 @@ class DashboardController extends Controller
                 ->whereDate('expected_return_date', '<', now()->toDateString())
                 ->count(),
             'staff_requests' => User::where('role', 'staff_pending')->count(),
+            'foster_requests' => Placement::where('status', 'Active')->whereNotNull('foster_request')->count(),
         ]);
     }
 }

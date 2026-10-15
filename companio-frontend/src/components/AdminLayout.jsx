@@ -64,7 +64,10 @@ export default function AdminLayout() {
           </NavLink>
           <NavLink to="/admin/placements">
             Placements
-            <CountBadge count={counts.overdue_placements} label="overdue returns" warn />
+            <span className="nav-counts">
+              <CountBadge count={counts.foster_requests} label="adopt or return requests" />
+              <CountBadge count={counts.overdue_placements} label="overdue returns" warn />
+            </span>
           </NavLink>
         </nav>
 

@@ -35,6 +35,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/applications', [FosterApplicationController::class, 'store']);
     Route::get('/my-applications', [FosterApplicationController::class, 'mine']);
     Route::patch('/my-applications/{application}/withdraw', [FosterApplicationController::class, 'withdraw']);
+    Route::patch('/my-placements/{placement}/request', [PlacementController::class, 'requestEnd']);
+    Route::delete('/my-placements/{placement}/request', [PlacementController::class, 'cancelRequest']);
     Route::get('/favorites', [FavoriteController::class, 'index']);
     Route::post('/favorites/{animal}', [FavoriteController::class, 'store']);
     Route::delete('/favorites/{animal}', [FavoriteController::class, 'destroy']);
@@ -52,6 +54,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/applications/{application}/reopen', [FosterApplicationController::class, 'reopen']);
         Route::get('/placements', [PlacementController::class, 'index']);
         Route::patch('/placements/{placement}', [PlacementController::class, 'update']);
+        Route::delete('/placements/{placement}/request', [PlacementController::class, 'clearRequest']);
         Route::get('/staff-requests', [StaffRequestController::class, 'index']);
         Route::patch('/staff-requests/{user}', [StaffRequestController::class, 'approve']);
         Route::delete('/staff-requests/{user}', [StaffRequestController::class, 'decline']);

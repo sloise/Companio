@@ -6,7 +6,119 @@ import MatchBadge from "../components/MatchBadge";
 import PetPhoto from "../components/PetPhoto";
 import StatusPill from "../components/StatusPill";
 import { LoadError, Skeleton } from "../components/PageStates";
-import { formatDate } from "../utils/format";
+import { daysUntil, formatDate } from "../utils/format";
+
+// "in 12 days", "today", "3 days ago"
+function whenText(date) {
+  const days = daysUntil(date);
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days > 1) return `in ${days} days`;
+  return `${-days} day${days === -1 ? "" : "s"} ago`;
+}
+
+// Shown while the pet lives with the foster: what "Fostering" means + adopt / return requests
+function FosterPanel({ application, onChanged }) {
+  const { notify, confirm } = useFeedback();
+  const placement = application.placement;
+  const petName = application.animal?.name || "your foster pet";
+
+  const [choosing, setChoosing] = useState(null); // "adopt" | "return" | null
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // UPDATE - tell the shelter how you'd like the foster period to end
+  const sendRequest = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const response = await api.patch(`/my-placements/${placement.id}/request`, { type: choosing, note: note || null });
+      notify(response.data.message);
+      setChoosing(null);
+      setNote("");
+      onChanged();
+    } catch (error) {
+      notify(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // DELETE - changed your mind
+  const cancelRequest = async () => {
+    const confirmed = await confirm({
+      title: "Cancel your request?",
+      message: `${petName} stays with you as a foster, and you can send a new request any time.`,
+      confirmLabel: "Cancel request",
+    });
+    if (!confirmed) return;
+
+    try {
+      const response = await api.delete(`/my-placements/${placement.id}/request`);
+      notify(response.data.message, "info");
+      onChanged();
+    } catch (error) {
+      notify(errorMessage(error), "error");
+    }
+  };
+
+  const due = placement.expected_return_date;
+  const late = due && daysUntil(due) < 0;
+
+  return (
+    <div className="foster-panel">
+      <p>
+        <strong>🏡 {petName} is living with you.</strong> Fostering means you care for {petName} at home
+        until they&apos;re adopted or come back to the shelter.
+        {due && (
+          <>
+            {" "}Expected back <strong className={late ? "due-late" : ""}>{formatDate(due)}</strong> ({whenText(due)}).
+          </>
+        )}
+      </p>
+
+      {placement.foster_request ? (
+        <div className={`foster-request foster-request-${placement.foster_request}`}>
+          <p>
+            <strong>
+              {placement.foster_request === "adopt" ? `🏠 You asked to adopt ${petName}` : `↩ You asked to return ${petName}`}
+            </strong>{" "}
+            · {formatDate(placement.foster_requested_at)}. Waiting for the shelter to confirm.
+          </p>
+          {placement.foster_request_note && <p className="muted small">Your note: “{placement.foster_request_note}”</p>}
+          <button type="button" className="link-btn" onClick={cancelRequest}>Cancel request</button>
+        </div>
+      ) : choosing ? (
+        <form className="foster-request-form" onSubmit={sendRequest}>
+          <label className="field">
+            {choosing === "adopt"
+              ? `Anything the shelter should know about adopting ${petName}? (optional)`
+              : `Why do you need to return ${petName}, and when works for you? (optional)`}
+            <textarea rows="2" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
+          </label>
+          <div className="foster-actions">
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => { setChoosing(null); setNote(""); }}>
+              Back
+            </button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
+              {busy ? "Sending..." : choosing === "adopt" ? "Send adoption request" : "Send return request"}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="foster-actions">
+          <span className="muted small">When the foster period ends, let the shelter know:</span>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setChoosing("adopt")}>
+            🏠 I&apos;d like to adopt {petName}
+          </button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setChoosing("return")}>
+            ↩ I need to return {petName}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // The steps of one request, e.g. Sent ✓ → Reviewed ✓ → Approved ✓ → Fostering (now)
 // state: "done" | "current" | "upcoming" | "stopped"
@@ -37,8 +149,12 @@ function timelineSteps(application) {
         steps.push({ label: "Returned to shelter", date: placement.updated_at, state: "done" });
       } else if (placement?.status === "Adopted") {
         steps.push({ label: "Adopted 🎉", date: placement.updated_at, state: "done" });
+      } else if (placement?.foster_request === "adopt") {
+        steps.push({ label: "Adoption requested", date: placement.foster_requested_at, state: "current" });
+      } else if (placement?.foster_request === "return") {
+        steps.push({ label: "Return requested", date: placement.foster_requested_at, state: "current" });
       } else {
-        steps.push({ label: "Return or adoption", state: "upcoming" });
+        steps.push({ label: "Adopt or return", state: "upcoming" });
       }
       return steps;
     }
@@ -171,6 +287,10 @@ export default function MyApplications() {
                 </li>
               ))}
             </ol>
+
+            {application.status === "Approved" && application.placement?.status === "Active" && (
+              <FosterPanel application={application} onChanged={() => setReload((count) => count + 1)} />
+            )}
 
             {application.status === "Pending" && (
               <div className="application-actions">
