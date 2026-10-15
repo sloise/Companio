@@ -7,6 +7,7 @@ const CLASSES = {
   Pending: "pill-amber",
   Approved: "pill-teal",
   Rejected: "pill-red",
+  Withdrawn: "pill-dark",
   Active: "pill-teal",
   Returned: "pill-blue",
 };

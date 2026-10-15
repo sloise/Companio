@@ -467,6 +467,17 @@ td { padding: 12px 16px; border-top: 1px solid #eef0ec; vertical-align: middle; 
 .queue-thumb .pet-photo { width: 40px; height: 40px; border-radius: 10px; font-size: 0; }
 .queue-text { flex: 1; min-width: 0; }
 .queue-text strong, .queue-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* each application is tinted by its status: stripe on the left + status word on the right */
+.queue-item { --status: #9aa49f; --status-bg: #fff; border-left: 4px solid var(--status); background: var(--status-bg); }
+.queue-pending { --status: #d9822b; --status-bg: #fff8ee; }
+.queue-approved { --status: #0e7a5a; --status-bg: #effaf5; }
+.queue-rejected { --status: #c0392b; --status-bg: #fdf1ef; }
+.queue-withdrawn { --status: #8a938f; --status-bg: #f4f5f3; }
+.queue-item:hover { filter: brightness(0.98); }
+.queue-active { background: var(--status-bg); box-shadow: inset 0 0 0 2px var(--status); }
+.queue-side { align-items: flex-end; flex: none; }
+.queue-status { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--status); }
+.queue-rejected .queue-score, .queue-withdrawn .queue-score { color: var(--muted); }
 
 /* ---------- Admin: placements ---------- */
 .placement-list { display: flex; flex-direction: column; gap: 12px; }

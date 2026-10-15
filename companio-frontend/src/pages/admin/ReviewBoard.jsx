@@ -216,7 +216,7 @@ export default function ReviewBoard() {
               <button
                 type="button"
                 key={application.id}
-                className={selected && application.id === selected.id ? "queue-item queue-active" : "queue-item"}
+                className={`queue-item queue-${application.status.toLowerCase()}${selected && application.id === selected.id ? " queue-active" : ""}`}
                 aria-current={selected && application.id === selected.id ? "true" : undefined}
                 onClick={() => setSelectedId(application.id)}
               >
@@ -229,7 +229,10 @@ export default function ReviewBoard() {
                   <strong>{application.full_name}</strong>
                   <small>for {application.animal?.name} · {timeAgo(application.created_at)}</small>
                 </span>
-                <span className="queue-score">{application.match_score}%</span>
+                <span className="queue-side">
+                  <span className="queue-score">{application.match_score}%</span>
+                  <span className="queue-status">{application.status}</span>
+                </span>
               </button>
             ))}
           </section>
