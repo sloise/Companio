@@ -197,9 +197,11 @@ export default function MatchFeed() {
   const dogCount = pets.filter((pet) => pet.species === "dog").length;
   const catCount = pets.length - dogCount;
 
-  const shown = pets.filter(
-    (pet) => (pet.species === "dog" ? filters.dogs : filters.cats) && (!filters.savedOnly || isSaved(pet.id))
-  );
+  // saved pets go first (your priorities); each group keeps the order chosen in "Sort"
+  const shown = pets
+    .filter((pet) => (pet.species === "dog" ? filters.dogs : filters.cats) && (!filters.savedOnly || isSaved(pet.id)))
+    .sort((a, b) => Number(isSaved(b.id)) - Number(isSaved(a.id)));
+  const savedShown = shown.filter((pet) => isSaved(pet.id)).length;
   const firstName = user.name.split(" ")[0];
 
   return (
@@ -281,7 +283,10 @@ export default function MatchFeed() {
             <h1>
               Hi {firstName}, {shown.length} {shown.length === 1 ? "pet fits" : "pets fit"} your home
             </h1>
-            <p className="muted">{SORT_NOTES[filters.sort]}</p>
+            <p className="muted">
+              {savedShown > 0 && !filters.savedOnly && "Your saved pets are shown first. "}
+              {SORT_NOTES[filters.sort]}
+            </p>
           </div>
 
           <label className="sort-field">
