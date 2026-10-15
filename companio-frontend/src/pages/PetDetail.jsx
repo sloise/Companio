@@ -177,7 +177,17 @@ export default function PetDetail() {
         </section>
 
         <aside>
-          {open ? (
+          {pet.my_request_sent_at ? (
+            <div className="card request-card request-sent-card">
+              <span className="request-sent-icon" aria-hidden="true">✉</span>
+              <h2>You already asked to foster {pet.name}</h2>
+              <p className="muted">
+                Your request was sent on {formatDate(pet.my_request_sent_at)} and the shelter is reviewing it.
+                We&apos;ll notify you as soon as they reply.
+              </p>
+              <Link className="btn btn-primary" to="/applications">Track my request</Link>
+            </div>
+          ) : open ? (
             <form className="card request-card" onSubmit={handleSubmit}>
               <div className="stack-sm">
                 <h2>Request to foster</h2>

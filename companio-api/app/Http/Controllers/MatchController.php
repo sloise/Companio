@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Animal;
+use App\Models\FosterApplication;
 use App\Services\MatchService;
 use Illuminate\Http\Request;
 
@@ -32,12 +33,18 @@ class MatchController extends Controller
             ->get();
 
         $minMatch = (int) $request->query('min_match', 60);
+
+        // pets this volunteer already has a pending request for (animal_id => sent at)
+        $pending = $this->pendingRequests($request->user()->id);
         $sort = $request->query('sort', 'match');
 
         $results = $animals
             ->map(fn ($animal) => array_merge(
                 $animal->toArray(),
-                ['match' => $this->matcher->evaluate($animal, $profile)]
+                [
+                    'match' => $this->matcher->evaluate($animal, $profile),
+                    'my_request_sent_at' => $pending[$animal->id] ?? null,
+                ]
             ))
             ->filter(fn ($row) => $row['match']['score'] >= $minMatch)
             ->sort(function ($a, $b) use ($sort) {
@@ -68,7 +75,20 @@ class MatchController extends Controller
 
         return response()->json(array_merge(
             $animal->toArray(),
-            ['match' => $this->matcher->evaluate($animal, $profile)]
+            [
+                'match' => $this->matcher->evaluate($animal, $profile),
+                'my_request_sent_at' => $this->pendingRequests($request->user()->id)[$animal->id] ?? null,
+            ]
         ));
+    }
+
+    // animal_id => when this volunteer sent a still-pending request for it
+    private function pendingRequests(int $userId): array
+    {
+        return FosterApplication::where('user_id', $userId)
+            ->where('status', 'Pending')
+            ->pluck('created_at', 'animal_id')
+            ->map(fn ($date) => $date?->toIso8601String())
+            ->all();
     }
 }

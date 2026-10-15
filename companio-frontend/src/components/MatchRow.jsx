@@ -46,6 +46,11 @@ export default function MatchRow({ pet, saved, onToggleSave }) {
             {pet.species === "cat" ? "Cat" : "Dog"} · {pet.age}
             {pet.sex ? ` · ${pet.sex[0]}` : ""}
           </span>
+          {pet.my_request_sent_at && (
+            <span className="badge badge-sent" title={`You sent a foster request on ${formatDate(pet.my_request_sent_at)}`}>
+              ✉ Request sent
+            </span>
+          )}
           {pet.is_urgent && (
             <span className="badge badge-urgent">
               Urgent{pet.needed_by ? ` · by ${formatDate(pet.needed_by)}` : ""}
@@ -73,7 +78,7 @@ export default function MatchRow({ pet, saved, onToggleSave }) {
           <div style={{ width: `${pet.match.score}%` }} />
         </div>
         <Link className="btn btn-dark" to={`/matches/${pet.id}`} aria-label={`See ${pet.name}'s profile`}>
-          See profile →
+          {pet.my_request_sent_at ? "View pet →" : "See profile →"}
         </Link>
       </div>
     </article>
