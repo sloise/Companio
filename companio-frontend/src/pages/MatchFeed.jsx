@@ -6,6 +6,8 @@ import MatchRow from "../components/MatchRow";
 import Tour from "../components/Tour";
 import { LoadError, Skeleton } from "../components/PageStates";
 import useSavedPets from "../utils/useSavedPets";
+import useFosterLimit from "../utils/useFosterLimit";
+import FosterLimitCard from "../components/FosterLimitCard";
 import { MATCH_OPTIONS } from "../constants";
 
 // the welcome tour is "pending" for a user right after they create their account
@@ -76,6 +78,9 @@ export default function MatchFeed() {
   // SAVED PETS (heart button)
   const { saved, isSaved, toggleSaved, forget } = useSavedPets();
   const foundHomes = saved.filter((pet) => !pet.open);
+
+  // FOSTER LIMIT (2-3 pets at a time, depending on home and experience)
+  const fosterLimit = useFosterLimit();
 
   // SEARCH + FILTER values. Species is filtered here in the browser so the counts stay visible.
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -275,6 +280,8 @@ export default function MatchFeed() {
             <Link to="/questionnaire">Update answers</Link>
           </div>
         )}
+
+        <FosterLimitCard limit={fosterLimit} compact />
       </aside>
 
       <section className="feed-main" aria-label="Matched pets">

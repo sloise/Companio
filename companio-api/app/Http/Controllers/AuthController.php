@@ -15,6 +15,8 @@ class AuthController extends Controller
     // until an existing admin approves them (see StaffRequestController).
     public function register(Request $request)
     {
+        $this->normalizeEmail($request);
+
         $validated = $request->validate([
             'name' => 'required|string|max:100',
             'email' => 'required|email|max:150|unique:users,email',
@@ -48,6 +50,8 @@ class AuthController extends Controller
     // LOGIN
     public function login(Request $request)
     {
+        $this->normalizeEmail($request);
+
         $validated = $request->validate([
             'email' => 'required|email',
             'password' => 'required|string',
@@ -78,6 +82,8 @@ class AuthController extends Controller
     // Always gives the same answer so nobody can use this to check which emails have accounts.
     public function forgotPassword(Request $request)
     {
+        $this->normalizeEmail($request);
+
         $request->validate(['email' => 'required|email']);
 
         Password::sendResetLink($request->only('email'));
@@ -90,6 +96,8 @@ class AuthController extends Controller
     // RESET PASSWORD - uses the token from the email link
     public function resetPassword(Request $request)
     {
+        $this->normalizeEmail($request);
+
         $request->validate([
             'token' => 'required|string',
             'email' => 'required|email',
@@ -111,6 +119,14 @@ class AuthController extends Controller
         }
 
         return response()->json(['message' => 'Your password was changed. You can sign in now.']);
+    }
+
+    // " Andrea@Email.com " and "andrea@email.com" are the same person - always store / compare in lowercase
+    private function normalizeEmail(Request $request): void
+    {
+        if (is_string($request->input('email'))) {
+            $request->merge(['email' => mb_strtolower(trim($request->input('email')))]);
+        }
     }
 
     // CURRENT USER

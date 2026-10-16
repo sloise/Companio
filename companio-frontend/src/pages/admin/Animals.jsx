@@ -76,6 +76,7 @@ export default function Animals() {
   const [editingId, setEditingId] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [customBreed, setCustomBreed] = useState(false); // true when "Other" is picked
+  const [saving, setSaving] = useState(false); // stops a double-click from saving twice
 
   const [filters, setFilters] = useState({ search: "", species: "", status: "" });
 
@@ -213,6 +214,10 @@ export default function Animals() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (saving) {
+      return;
+    }
+
     // empty optional fields are sent as null
     const payload = {
       ...formData,
@@ -224,6 +229,7 @@ export default function Animals() {
       needed_by: formData.is_urgent && formData.needed_by ? formData.needed_by : null,
     };
 
+    setSaving(true);
     try {
       if (editingId) {
         // UPDATE
@@ -240,6 +246,8 @@ export default function Animals() {
     } catch (error) {
       console.error(error);
       notify(errorMessage(error), "error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -610,8 +618,8 @@ export default function Animals() {
             <button type="button" className="btn btn-outline" onClick={closeForm}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary">
-              {editingId ? "Save changes" : "Add animal"}
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? "Saving..." : editingId ? "Save changes" : "Add animal"}
             </button>
           </div>
         </form>

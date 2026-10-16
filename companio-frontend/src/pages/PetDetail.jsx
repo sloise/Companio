@@ -8,6 +8,8 @@ import StatusPill from "../components/StatusPill";
 import SaveButton from "../components/SaveButton";
 import { LoadError, Skeleton } from "../components/PageStates";
 import useSavedPets from "../utils/useSavedPets";
+import useFosterLimit from "../utils/useFosterLimit";
+import FosterLimitCard from "../components/FosterLimitCard";
 import { formatDate } from "../utils/format";
 
 // today's date in the browser's own time zone (yyyy-mm-dd), used as the earliest foster date
@@ -22,6 +24,7 @@ export default function PetDetail() {
   const { user } = useAuth();
   const { notify } = useFeedback();
   const { isSaved, toggleSaved } = useSavedPets();
+  const fosterLimit = useFosterLimit();
 
   const [pet, setPet] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -186,6 +189,16 @@ export default function PetDetail() {
                 We&apos;ll notify you as soon as they reply.
               </p>
               <Link className="btn btn-primary" to="/applications">Track my request</Link>
+            </div>
+          ) : open && fosterLimit?.remaining === 0 ? (
+            <div className="card request-card">
+              <h2>You&apos;ve reached your foster limit</h2>
+              <p className="muted">
+                You can have up to {fosterLimit.limit} pets at a time, counting pets you foster and requests that are
+                still waiting. To ask for {pet.name}, withdraw a waiting request or finish a current foster.
+              </p>
+              <FosterLimitCard limit={fosterLimit} />
+              <Link className="btn btn-outline" to="/applications">Go to my applications</Link>
             </div>
           ) : open ? (
             <form className="card request-card" onSubmit={handleSubmit}>

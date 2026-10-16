@@ -288,6 +288,24 @@ export default function ReviewBoard() {
                 </div>
               </div>
 
+              {selected.foster_limit && (
+                <div
+                  className={
+                    selected.status === "Pending" && selected.foster_limit.active >= selected.foster_limit.limit
+                      ? "notice notice-error applicant-limit"
+                      : "notice notice-info applicant-limit"
+                  }
+                >
+                  <strong>Foster limit: {selected.foster_limit.limit} pets at a time.</strong>{" "}
+                  {selected.full_name} is fostering {selected.foster_limit.active} now
+                  {" "}and has {selected.foster_limit.pending} request{selected.foster_limit.pending === 1 ? "" : "s"} waiting
+                  {selected.foster_limit.completed > 0 ? ` · ${selected.foster_limit.completed} foster${selected.foster_limit.completed === 1 ? "" : "s"} completed before` : ""}.
+                  {selected.status === "Pending" && selected.foster_limit.active >= selected.foster_limit.limit
+                    ? " They can't take another pet until one of their fosters ends."
+                    : ""}
+                </div>
+              )}
+
               <div className="two-col two-col-even">
                 <div className="card stack-sm">
                   <h3>Applicant&apos;s message</h3>

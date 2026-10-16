@@ -6,6 +6,8 @@ import MatchBadge from "../components/MatchBadge";
 import PetPhoto from "../components/PetPhoto";
 import StatusPill from "../components/StatusPill";
 import { LoadError, Skeleton } from "../components/PageStates";
+import FosterLimitCard from "../components/FosterLimitCard";
+import useFosterLimit from "../utils/useFosterLimit";
 import { daysUntil, formatDate } from "../utils/format";
 
 // "in 12 days", "today", "3 days ago"
@@ -176,6 +178,7 @@ export default function MyApplications() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [reload, setReload] = useState(0); // bump to load the list again
+  const fosterLimit = useFosterLimit(reload);
 
   // READ
   useEffect(() => {
@@ -230,6 +233,8 @@ export default function MyApplications() {
         <h1>My applications</h1>
         <p className="muted">Track your foster requests. Shelter staff review them in the order they arrive.</p>
       </div>
+
+      <FosterLimitCard limit={fosterLimit} />
 
       {applications.length === 0 ? (
         <div className="card empty">

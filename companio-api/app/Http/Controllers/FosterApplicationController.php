@@ -7,13 +7,14 @@ use App\Models\AnimalEvent;
 use App\Models\FosterApplication;
 use App\Models\Placement;
 use App\Models\UserNotification;
+use App\Services\FosterLimit;
 use App\Services\MatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class FosterApplicationController extends Controller
 {
-    public function __construct(private MatchService $matcher)
+    public function __construct(private MatchService $matcher, private FosterLimit $limits)
     {
     }
 
@@ -63,6 +64,18 @@ class FosterApplicationController extends Controller
             ], 422);
         }
 
+        // foster limit: pets fostered now + requests still waiting
+        $limit = $this->limits->for($user);
+
+        if ($limit['remaining'] === 0) {
+            return response()->json([
+                'message' => "You've reached your limit of {$limit['limit']} pets at a time "
+                    . "({$limit['active']} fostering, {$limit['pending']} waiting for an answer). "
+                    . 'Withdraw a request or finish a foster to apply for another pet.',
+                'limit_reached' => true,
+            ], 422);
+        }
+
         // The score is always calculated on the server, never trusted from the browser.
         $result = $this->matcher->evaluate($animal, $profile);
 
@@ -99,6 +112,12 @@ class FosterApplicationController extends Controller
             ->get();
 
         return response()->json($applications);
+    }
+
+    // READ - the volunteer's own foster limit (shown on Matches, pet pages and My applications)
+    public function myLimit(Request $request)
+    {
+        return response()->json($this->limits->for($request->user()));
     }
 
     // UPDATE - volunteer cancels their own pending request
@@ -149,6 +168,8 @@ class FosterApplicationController extends Controller
                     ? $this->matcher->evaluate($application->animal, $profile)
                     : null;
 
+                $data['foster_limit'] = $application->user ? $this->limits->for($application->user) : null;
+
                 return $data;
             });
 
@@ -174,6 +195,17 @@ class FosterApplicationController extends Controller
             return response()->json([
                 'message' => "{$animal->name} is not open for a new placement.",
             ], 422);
+        }
+
+        if ($validated['status'] === 'Approved') {
+            $limit = $this->limits->for($application->user);
+
+            if ($limit['active'] >= $limit['limit']) {
+                return response()->json([
+                    'message' => "{$application->full_name} is already fostering {$limit['active']} pets, "
+                        . "which is their limit of {$limit['limit']}. Approve this after one of their fosters ends.",
+                ], 422);
+            }
         }
 
         DB::transaction(function () use ($application, $animal, $validated, $admin) {
@@ -253,6 +285,15 @@ class FosterApplicationController extends Controller
         if (! in_array($animal->status, Animal::OPEN_STATUSES, true)) {
             return response()->json([
                 'message' => "{$animal->name} is already placed, so this request can't be reopened.",
+            ], 422);
+        }
+
+        $limit = $this->limits->for($application->user);
+
+        if ($limit['remaining'] === 0) {
+            return response()->json([
+                'message' => "{$application->full_name} is at their limit of {$limit['limit']} pets "
+                    . "({$limit['active']} fostering, {$limit['pending']} waiting), so this request can't be reopened right now.",
             ], 422);
         }
 

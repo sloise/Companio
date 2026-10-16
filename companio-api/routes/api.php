@@ -34,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/matches/{animal}', [MatchController::class, 'show']);
     Route::post('/applications', [FosterApplicationController::class, 'store']);
     Route::get('/my-applications', [FosterApplicationController::class, 'mine']);
+    Route::get('/my-limit', [FosterApplicationController::class, 'myLimit']);
     Route::patch('/my-applications/{application}/withdraw', [FosterApplicationController::class, 'withdraw']);
     Route::patch('/my-placements/{placement}/request', [PlacementController::class, 'requestEnd']);
     Route::delete('/my-placements/{placement}/request', [PlacementController::class, 'cancelRequest']);

@@ -57,6 +57,10 @@ class AnimalController extends Controller
     {
         $validated = $this->withDeadline($request->validate($this->rules()));
 
+        if ($duplicate = $this->findDuplicate($validated)) {
+            return $this->duplicateResponse($duplicate);
+        }
+
         $animal = Animal::create($validated);
 
         AnimalEvent::log($animal->id, "Added to Companio by {$request->user()->name}", $request->user()->id);
@@ -77,6 +81,11 @@ class AnimalController extends Controller
     public function update(Request $request, Animal $animal)
     {
         $validated = $this->withDeadline($request->validate($this->rules()));
+
+        if ($duplicate = $this->findDuplicate($validated, $animal->id)) {
+            return $this->duplicateResponse($duplicate);
+        }
+
         $oldStatus = $animal->status;
 
         $animal->update($validated);
@@ -111,6 +120,41 @@ class AnimalController extends Controller
         }
 
         return response()->json($events);
+    }
+
+    // Another animal with the same name, species, breed, sex and age (capitals and spaces ignored).
+    // Pets that only share a name (two dogs called "Max") are still allowed.
+    private function findDuplicate(array $data, ?int $ignoreId = null): ?Animal
+    {
+        $clean = fn ($value) => mb_strtolower(trim((string) $value));
+
+        return Animal::query()
+            ->whereRaw('LOWER(TRIM(name)) = ?', [$clean($data['name'])])
+            ->where('species', $data['species'])
+            ->whereRaw("LOWER(TRIM(COALESCE(breed, ''))) = ?", [$clean($data['breed'] ?? '')])
+            ->whereRaw("COALESCE(sex, '') = ?", [$data['sex'] ?? ''])
+            ->whereRaw('LOWER(TRIM(age)) = ?', [$clean($data['age'])])
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->first();
+    }
+
+    private function duplicateResponse(Animal $duplicate)
+    {
+        $details = collect([
+            $duplicate->species === 'cat' ? 'cat' : 'dog',
+            $duplicate->breed,
+            $duplicate->sex,
+            $duplicate->age,
+        ])->filter()->implode(', ');
+
+        return response()->json([
+            'message' => "{$duplicate->name} ({$details}) is already in the list.",
+            'errors' => [
+                'name' => ["{$duplicate->name} ({$details}) is already in the list, so this would be a duplicate. "
+                    . 'Edit the existing animal instead, or change the details if this is a different pet.'],
+            ],
+            'duplicate_id' => $duplicate->id,
+        ], 422);
     }
 
     // only urgent animals keep a "needs a home by" date
