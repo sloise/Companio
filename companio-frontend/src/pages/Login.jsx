@@ -139,9 +139,12 @@ export default function Login() {
 
   return (
     <div className="auth-page auth-page-login">
-      <Logo />
+      <div className="auth-top" style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12,width:"min(1120px,100%)",marginInline:"auto"}}>
+        <Logo />
+        <span className="welcome-badge" style={{alignSelf:"center"}}><Icon name="heart" size={16}/> A little care. A lasting difference.</span>
+      </div>
 
-      <div className="auth-layout"><aside className="auth-welcome"><span className="welcome-badge"><Icon name="heart" size={16}/> A little care. A lasting difference.</span><h2>A home between <br/>rescue and forever.</h2><p>Meet a companion who fits your home. Give them a safe place to rest, grow, and begin again.</p><div className="welcome-values"><span><Icon name="shield"/> Thoughtful screening</span><span><Icon name="paw"/> Matches that make sense</span><span><Icon name="home"/> Support along the way</span></div><LoginPlay/></aside>
+      <div className="auth-layout"><aside className="auth-welcome"><h2>A home between <br/>rescue and forever.</h2><p>Meet a companion who fits your home. Give them a safe place to rest, grow, and begin again.</p><div className="welcome-values"><span><Icon name="shield"/> Thoughtful screening</span><span><Icon name="paw"/> Matches that make sense</span><span><Icon name="home"/> Support along the way</span></div><LoginPlay/></aside>
       <ValidatedForm className="auth-card" onSubmit={handleSubmit}>
         <div className="auth-card-head">
           <h1>{isRegister ? "Join Companio" : "Welcome back"}</h1>
