@@ -1,5 +1,11 @@
+import LoginPlay from "../components/LoginPlay";
+import PasswordInput from "../components/PasswordInput";
+import Icon from "../components/Icon";
+import ValidatedForm from "../components/ValidatedForm";
+import useConfirmedAction from "../utils/useConfirmedAction";
+import FileInput from "../components/FileInput";
 import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/auth";
 import { errorMessage } from "../api/client";
 import { useFeedback } from "../context/feedback";
@@ -36,6 +42,7 @@ const EMPTY_FORM = {
   last_name: "",
   email: "",
   password: "",
+  shelter_id: null,
 };
 
 export default function Login() {
@@ -43,14 +50,16 @@ export default function Login() {
   const navigate = useNavigate();
   const { notify } = useFeedback();
 
-  const [mode, setMode] = useState("login"); // "login" or "register"
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [searchParams] = useSearchParams();
+  const [mode, setMode] = useState(searchParams.get("mode") === "register" ? "register" : "login"); // "login" or "register"
+  const [form, setForm] = useState({...EMPTY_FORM, account_type: searchParams.get("role") === "shelter" ? "shelter" : "volunteer"});
   const [busy, setBusy] = useState(false);
+  const {run,busy:confirmBusy} = useConfirmedAction();
   const [notice, setNotice] = useState("");
 
   // already logged in? go straight to the right place
   if (user) {
-    return <Navigate to={user.role === "admin" ? "/admin" : "/matches"} replace />;
+    return <Navigate to={["admin", "super_admin"].includes(user.role) ? "/admin" : "/matches"} replace />;
   }
 
   const isRegister = mode === "register";
@@ -65,13 +74,14 @@ export default function Login() {
   const handleChange = (e) => {
     setForm({
       ...form,
-      [e.target.name]: e.target.value,
+      [e.target.name]: e.target.type === "file" ? e.target.files[0] : e.target.value,
     });
   };
 
   // LOGIN OR REGISTER
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (busy || confirmBusy) return;
     setBusy(true);
 
     try {
@@ -80,12 +90,23 @@ export default function Login() {
         return;
       }
 
-      const result = await register({
+      const payload = {
         name: `${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
         email: form.email,
         password: form.password,
         account_type: form.account_type,
-      });
+      };
+      let submission = payload;
+      if (isShelter) {
+        if (!form.shelter_id || form.shelter_id.size > 4 * 1024 * 1024) {
+          notify("Choose an ID file up to 4 MB.", "error");
+          return;
+        }
+        submission = new FormData();
+        Object.entries({ ...payload, shelter_id: form.shelter_id }).forEach(([key, value]) => submission.append(key, value));
+      }
+      await run({title:isShelter ? "Submit a shelter account request for " + form.email + "?" : "Create a foster account for " + form.email + "?",message:isShelter ? "Your name and private ID will be sent to the Super Admin. Shelter access stays blocked until approval." : "This creates your Companio account. You will complete your home profile next.",confirmLabel:isShelter ? "Submit Account Request" : "Create Account"},async () => {
+      const result = await register(submission);
 
       if (result.pending) {
         // shelter staff: wait for an administrator, then sign in
@@ -101,6 +122,7 @@ export default function Login() {
         }
         navigate("/questionnaire"); // new volunteers answer the questionnaire first
       }
+      });
     } catch (error) {
       notify(errorMessage(error), "error");
     } finally {
@@ -116,10 +138,11 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page">
+    <div className="auth-page auth-page-login">
       <Logo />
 
-      <form className="auth-card" onSubmit={handleSubmit}>
+      <div className="auth-layout"><aside className="auth-welcome"><span className="welcome-badge"><Icon name="heart" size={16}/> A little care. A lasting difference.</span><h2>A home between <br/>rescue and forever.</h2><p>Meet a companion who fits your home. Give them a safe place to rest, grow, and begin again.</p><div className="welcome-values"><span><Icon name="shield"/> Thoughtful screening</span><span><Icon name="paw"/> Matches that make sense</span><span><Icon name="home"/> Support along the way</span></div><LoginPlay/></aside>
+      <ValidatedForm className="auth-card" onSubmit={handleSubmit}>
         <div className="auth-card-head">
           <h1>{isRegister ? "Join Companio" : "Welcome back"}</h1>
           <p className="muted">
@@ -162,25 +185,31 @@ export default function Login() {
         {isRegister && (
           <div className="field-row">
             <label className="field">
-              First name
-              <input type="text" name="first_name" value={form.first_name} onChange={handleChange} autoComplete="given-name" required />
+              <span>First name <span className="required-mark" aria-hidden="true">*</span></span>
+              <input type="text" name="first_name" value={form.first_name} onChange={handleChange} autoComplete="given-name" placeholder="First name" required />
             </label>
             <label className="field">
-              Last name
-              <input type="text" name="last_name" value={form.last_name} onChange={handleChange} autoComplete="family-name" required />
+              <span>Last name <span className="required-mark" aria-hidden="true">*</span></span>
+              <input type="text" name="last_name" value={form.last_name} onChange={handleChange} autoComplete="family-name" placeholder="Last name" required />
             </label>
           </div>
         )}
 
+        {isShelter && (
+          <>
+            <label className="field"><span>Valid ID <span className="required-mark" aria-hidden="true">*</span></span><FileInput name="shelter_id" accept=".jpg,.jpeg,.png,.pdf" onChange={handleChange} required /><span className="field-hint">JPG, PNG or PDF, up to 4 MB. Only the Super Admin can view your ID.</span></label>
+          </>
+        )}
         <label className="field">
-          Email
-          <input type="email" name="email" value={form.email} onChange={handleChange} autoComplete="email" required />
+          <span>Email <span className="required-mark" aria-hidden="true">*</span></span>
+          <input type="email" name="email" value={form.email} onChange={handleChange} autoComplete="email" placeholder="you@example.com" required />
         </label>
 
         <label className="field">
-          Password
-          <input
-            type="password"
+          <span>Password <span className="required-mark" aria-hidden="true">*</span></span>
+          <PasswordInput
+
+            placeholder={isRegister ? "At least 8 characters" : "Enter your password"}
             name="password"
             value={form.password}
             onChange={handleChange}
@@ -198,16 +227,9 @@ export default function Login() {
           {busy ? "Please wait..." : submitLabel}
         </button>
 
-        {/* Demo logins from the seeder - only shown while developing (npm run dev), never on the live site */}
-        {import.meta.env.DEV && !isRegister && (
-          <p className="hint">
-            Demo: <code>andrea@companio.test</code> (volunteer) or{" "}
-            <code>admin@companio.test</code> (shelter admin). Password: <code>password</code>
-          </p>
-        )}
-      </form>
+      </ValidatedForm></div>
 
-      <p className="auth-foot">Shelter staff accounts are confirmed by an administrator before first use.</p>
+      <p className="auth-foot">Shelter staff accounts are reviewed by the Super Admin before first use.</p>
     </div>
   );
 }

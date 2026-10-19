@@ -1,3 +1,4 @@
+import CorgiLoader from "./CorgiLoader";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
@@ -6,6 +7,7 @@ import { timeAgo } from "../utils/format";
 // The bell in the volunteer top bar: shows a dot when the shelter has news (approved, rejected...)
 export default function NotificationBell() {
   const navigate = useNavigate();
+  const [loading,setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState([]);
@@ -19,13 +21,14 @@ export default function NotificationBell() {
         setUnread(response.data.unread);
         setItems(response.data.notifications);
       } catch {
-        // not important enough to show an error - we'll try again in a minute
-      }
+        // Keep the previous notifications during a temporary network error.
+      } finally {setLoading(false);}
     };
 
     getNotifications();
-    const timer = setInterval(getNotifications, 60000);
-    return () => clearInterval(timer);
+    const timer = setInterval(getNotifications, 10000);
+    window.addEventListener("communication-changed", getNotifications);
+    return () => { clearInterval(timer); window.removeEventListener("communication-changed", getNotifications); };
   }, []);
 
   // close when clicking anywhere else or pressing Esc
@@ -47,24 +50,16 @@ export default function NotificationBell() {
     };
   }, [open]);
 
-  // opening the list marks everything as read
-  const toggle = async () => {
-    const opening = !open;
-    setOpen(opening);
+  const toggle = () => setOpen(!open);
 
-    if (opening && unread > 0) {
-      setUnread(0);
-      try {
-        await api.post("/notifications/read");
-      } catch {
-        // they'll just show as unread again next time
-      }
-    }
-  };
-
-  const openItem = (item) => {
+  const openItem = async (item) => {
     setOpen(false);
-    if (item.link) navigate(item.link);
+    try {
+      await api.post(`/notifications/${item.id}/read`);
+      setItems(old => old.map(n => n.id === item.id ? {...n, read_at: new Date().toISOString()} : n));
+      if (!item.read_at) setUnread(n => Math.max(0, n - 1));
+    } catch { /* Retain unread status if saving fails. */ }
+    if (item.link?.startsWith('/') && !item.link.startsWith('//')) navigate(item.link);
   };
 
   return (
@@ -74,6 +69,7 @@ export default function NotificationBell() {
         className="bell-btn"
         aria-label={unread > 0 ? `Notifications, ${unread} new` : "Notifications"}
         aria-expanded={open}
+        aria-controls="notifications-panel"
         onClick={toggle}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -84,19 +80,19 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="user-menu-panel bell-panel">
+        <div id="notifications-panel" className="user-menu-panel bell-panel" role="region" aria-label="Notifications">
           <div className="user-menu-who">
             <strong>Notifications</strong>
           </div>
 
-          {items.length === 0 ? (
+          {loading ? <CorgiLoader label="Checking notifications..." compact/> : items.length === 0 ? (
             <p className="muted small bell-empty">Nothing yet. We&apos;ll let you know when the shelter replies to a request.</p>
           ) : (
             <ul className="bell-list">
               {items.map((item) => (
                 <li key={item.id}>
                   <button type="button" className={item.read_at ? "bell-item" : "bell-item bell-item-new"} onClick={() => openItem(item)}>
-                    <span>{item.message}</span>
+                    <span>{item.message.replace(/\p{Extended_Pictographic}\uFE0F?/gu, "").trim()}</span>
                     <small>{timeAgo(item.created_at)}</small>
                   </button>
                 </li>

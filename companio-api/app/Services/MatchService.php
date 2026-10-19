@@ -40,6 +40,7 @@ class MatchService
     ];
 
     private const HOURS_HOME = [
+        0 => 'None',
         4 => 'Under 4 hours alone',
         8 => '4-8 hours alone',
         12 => 'More than 8 hours alone',
@@ -93,8 +94,8 @@ class MatchService
             'pets',
             'Other pets',
             ($animal->good_with_cats ? 'Fine with cats' : 'No other cats')
-                . ', '
-                . ($animal->good_with_dogs ? 'fine with dogs' : 'no other dogs'),
+                .', '
+                .($animal->good_with_dogs ? 'fine with dogs' : 'no other dogs'),
             $petsHome ? implode(' and ', $petsHome) : 'No other pets',
             $petsOk
         );
@@ -117,8 +118,8 @@ class MatchService
         $checks[] = $this->check(
             'hours',
             'Time alone',
-            self::HOURS_NEED[$animal->max_hours_alone] ?? ($animal->max_hours_alone . ' hours'),
-            self::HOURS_HOME[$profile->hours_alone] ?? ($profile->hours_alone . ' hours'),
+            self::HOURS_NEED[$animal->max_hours_alone] ?? ($animal->max_hours_alone.' hours'),
+            self::HOURS_HOME[$profile->hours_alone] ?? ($profile->hours_alone.' hours'),
             $animal->max_hours_alone >= $profile->hours_alone
         );
 
@@ -127,6 +128,7 @@ class MatchService
         return [
             'score' => (int) round($met / count($checks) * 100),
             'checks' => $checks,
+            'eligible' => $met / count($checks) >= 0.6,
         ];
     }
 

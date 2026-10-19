@@ -1,6 +1,9 @@
+import PasswordInput from "../components/PasswordInput";
+import ValidatedForm from "../components/ValidatedForm";
+import useConfirmedAction from "../utils/useConfirmedAction";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import api, { errorMessage } from "../api/client";
+import api from "../api/client";
 import { useFeedback } from "../context/feedback";
 import Logo from "../components/Logo";
 
@@ -14,7 +17,7 @@ export default function ResetPassword() {
   const email = searchParams.get("email") || "";
 
   const [form, setForm] = useState({ password: "", password_confirmation: "" });
-  const [busy, setBusy] = useState(false);
+  const {run,busy} = useConfirmedAction();
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -28,17 +31,9 @@ export default function ResetPassword() {
       return;
     }
 
-    setBusy(true);
-
-    try {
-      const response = await api.post("/reset-password", { token, email, ...form });
-      notify(response.data.message);
-      navigate("/login");
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    } finally {
-      setBusy(false);
-    }
+    await run({title:"Reset the password for " + email + "?",message:"Your password will be replaced and existing sign-in tokens will be revoked. Use the new password to sign in again.",confirmLabel:"Reset Password"},async () => {
+      const response = await api.post("/reset-password",{token,email,...form});notify(response.data.message);navigate("/login");
+    });
   };
 
   const linkIsBroken = !token || !email;
@@ -47,7 +42,7 @@ export default function ResetPassword() {
     <div className="auth-page">
       <Logo />
 
-      <form className="auth-card" onSubmit={handleSubmit}>
+      <ValidatedForm className="auth-card" onSubmit={handleSubmit}>
         <div className="auth-card-head">
           <h1>Choose a new password</h1>
           {!linkIsBroken && <p className="muted">for {email}</p>}
@@ -60,9 +55,7 @@ export default function ResetPassword() {
         ) : (
           <>
             <label className="field">
-              New password
-              <input
-                type="password"
+              <span>New password <span className="required-mark" aria-hidden="true">*</span></span><PasswordInput
                 name="password"
                 value={form.password}
                 onChange={handleChange}
@@ -74,9 +67,7 @@ export default function ResetPassword() {
             </label>
 
             <label className="field">
-              Type it again
-              <input
-                type="password"
+              <span>Type it again <span className="required-mark" aria-hidden="true">*</span></span><PasswordInput
                 name="password_confirmation"
                 value={form.password_confirmation}
                 onChange={handleChange}
@@ -97,7 +88,7 @@ export default function ResetPassword() {
             {linkIsBroken ? "Request a new link" : "Back to sign in"}
           </Link>
         </p>
-      </form>
+      </ValidatedForm>
     </div>
   );
 }

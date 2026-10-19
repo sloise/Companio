@@ -1,3 +1,5 @@
+import { urgencyText } from "../utils/format";
+import Icon from "./Icon";
 import { Link } from "react-router-dom";
 import PetPhoto from "./PetPhoto";
 import SaveButton from "./SaveButton";
@@ -27,10 +29,7 @@ function tagText(key, pet) {
 }
 
 export default function MatchRow({ pet, saved, onToggleSave }) {
-  // up to 3 tags: every rule that doesn't fit, topped up with ones that do (fits shown first)
-  const failed = pet.match.checks.filter((check) => !check.ok);
-  const passed = pet.match.checks.filter((check) => check.ok);
-  const tags = [...passed.slice(0, Math.max(0, 3 - failed.length)), ...failed].slice(0, 3);
+  const tags = pet.match.checks;
 
   return (
     <article className="match-row">
@@ -48,12 +47,12 @@ export default function MatchRow({ pet, saved, onToggleSave }) {
           </span>
           {pet.my_request_sent_at && (
             <span className="badge badge-sent" title={`You sent a foster request on ${formatDate(pet.my_request_sent_at)}`}>
-              ✉ Request sent
+              <Icon name="mail" size={14}/> Request sent
             </span>
           )}
           {pet.is_urgent && (
             <span className="badge badge-urgent">
-              Urgent{pet.needed_by ? ` · by ${formatDate(pet.needed_by)}` : ""}
+              {urgencyText(pet)}
             </span>
           )}
         </div>
@@ -61,7 +60,7 @@ export default function MatchRow({ pet, saved, onToggleSave }) {
         <ul className="fit-tags" aria-label="Care rules">
           {tags.map((check) => (
             <li key={check.key} className={check.ok ? "fit-tag" : "fit-tag fit-tag-no"}>
-              <span aria-hidden="true">{check.ok ? "✓ " : "✕ "}</span>
+              <Icon name={check.ok ? "check" : "x"} size={14}/>
               <span className="sr-only">{check.ok ? "Fits: " : "Doesn't fit: "}</span>
               {tagText(check.key, pet)}
             </li>

@@ -50,7 +50,7 @@ export function errorMessage(error) {
   }
 
   if (error.response.status === 429) {
-    return "Too many attempts. Please wait a minute and try again.";
+    return data?.message || "Too many attempts. Please wait a minute and try again.";
   }
 
   if (error.response.status >= 500) {

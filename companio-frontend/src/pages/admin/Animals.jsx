@@ -1,3 +1,8 @@
+import { defaultUrgencyDeadline, urgencyText } from "../../utils/format";
+import ValidatedForm from "../../components/ValidatedForm";
+import Icon from "../../components/Icon";
+import useConfirmedAction from "../../utils/useConfirmedAction";
+import { animalAge, localToday, HEALTH_STATUSES, sterilizationOptions, normalizeSterilization, estimatedAge, vaccinesFor } from "../../utils/animal";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api, { errorMessage } from "../../api/client";
@@ -7,7 +12,6 @@ import PetPhoto from "../../components/PetPhoto";
 import StatusPill from "../../components/StatusPill";
 import AnimalHistory from "../../components/AnimalHistory";
 import { LoadError, Skeleton } from "../../components/PageStates";
-import { formatDate } from "../../utils/format";
 import { ANIMAL_HOURS, ANIMAL_KIDS, CAT_BREEDS, DOG_BREEDS, STATUSES } from "../../constants";
 
 const OTHER_BREED = "__other";
@@ -19,26 +23,35 @@ const EMPTY_FORM = {
   species: "dog",
   breed: "",
   sex: "",
-  age: "",
+  birth_date: "",
+  birth_date_unknown: false,
+  estimated_age_years: "",
+  estimated_age_months: "",
+  health_status: "Records Unavailable",
+  sterilization_status: "Unknown",
+  vaccinations: [],
   description: "",
   photo_url: "",
-  apartment_ok: true,
-  needs_yard: false,
-  good_with_cats: true,
-  good_with_dogs: true,
-  kids_ok: "any",
-  max_hours_alone: 8,
+  apartment_ok: "",
+  needs_yard: "",
+  good_with_cats: "",
+  good_with_dogs: "",
+  kids_ok: "",
+  max_hours_alone: "",
+  care_rules_confirmed: false,
+  urgent_reason: "",
+  urgent_notes: "",
   is_urgent: false,
   needed_by: "",
   status: "Awaiting Foster",
 };
 
 const CARE_RULES = [
-  { name: "apartment_ok", label: "Can live in an apartment" },
-  { name: "needs_yard", label: "Needs a fenced yard" },
-  { name: "good_with_cats", label: "Good with cats" },
-  { name: "good_with_dogs", label: "Good with dogs" },
-  { name: "is_urgent", label: "Mark as urgent" },
+  { name: "apartment_ok", label: "Can live in an apartment", yes:"Apartment suitable", no:"House required" },
+  { name: "needs_yard", label: "Needs a fenced yard", yes:"Fenced yard required", no:"No yard needed" },
+  { name: "good_with_cats", label: "Good with cats", yes:"Comfortable with cats", no:"No cats in the home" },
+  { name: "good_with_dogs", label: "Good with dogs", yes:"Comfortable with dogs", no:"No dogs in the home" },
+
 ];
 
 // Shrinks a picked image to at most 800px wide/tall and returns it as a JPEG data URL,
@@ -65,7 +78,7 @@ function resizeImage(file, maxSize = 800) {
 }
 
 export default function Animals() {
-  const { notify, confirm } = useFeedback();
+  const { notify } = useFeedback();
 
   const [animals, setAnimals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,8 +88,10 @@ export default function Animals() {
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const photoRevision = useRef(0);
+  const [mixedBreed, setMixedBreed] = useState(false);
   const [customBreed, setCustomBreed] = useState(false); // true when "Other" is picked
-  const [saving, setSaving] = useState(false); // stops a double-click from saving twice
+  const { run, busy: saving } = useConfirmedAction();
 
   const [filters, setFilters] = useState({ search: "", species: "", status: "" });
 
@@ -134,6 +149,8 @@ export default function Animals() {
     setFormData(EMPTY_FORM);
     setDragging(false);
     setCustomBreed(false);
+    setMixedBreed(false);
+    photoRevision.current += 1;
   };
 
   const addAnimal = () => {
@@ -148,6 +165,8 @@ export default function Animals() {
     setFormData({
       ...formData,
       [name]: type === "checkbox" ? checked : value,
+      ...(name === "is_urgent" && checked && !formData.needed_by ? {needed_by: defaultUrgencyDeadline()} : {}),
+      ...(name === "sex" ? {sterilization_status:normalizeSterilization(value, formData.sterilization_status)} : {}),
     });
   };
 
@@ -158,13 +177,14 @@ export default function Animals() {
     // a dog breed doesn't make sense for a cat, so clear a picked breed from the old list
     const keepBreed = customBreed || breedsFor(species).includes(formData.breed);
 
-    setFormData({ ...formData, species, breed: keepBreed ? formData.breed : "" });
+    setFormData({ ...formData, species, breed: keepBreed ? formData.breed : "", vaccinations: [] });
   };
 
   const handleBreedSelect = (e) => {
     const { value } = e.target;
 
-    if (value === OTHER_BREED) {
+    setMixedBreed(value === "Mixed breed");
+    if (value === OTHER_BREED || value === "Mixed breed") {
       setCustomBreed(true);
       setFormData({ ...formData, breed: "" });
     } else {
@@ -184,8 +204,10 @@ export default function Animals() {
       return;
     }
 
+    const revision = ++photoRevision.current;
     try {
       const photo = await resizeImage(file);
+      if (revision !== photoRevision.current) return;
       setFormData((current) => ({ ...current, photo_url: photo }));
     } catch (error) {
       console.error(error);
@@ -205,6 +227,7 @@ export default function Animals() {
   };
 
   const removePhoto = () => {
+    photoRevision.current += 1;
     setFormData({ ...formData, photo_url: "" });
   };
 
@@ -221,39 +244,39 @@ export default function Animals() {
     // empty optional fields are sent as null
     const payload = {
       ...formData,
-      breed: formData.breed || null,
+      breed: mixedBreed ? "Mixed breed: " + formData.breed : formData.breed || null,
       sex: formData.sex || null,
+      birth_date: formData.birth_date_unknown ? null : formData.birth_date || null,
+      estimated_age_years: formData.birth_date_unknown && formData.estimated_age_years !== "" ? Number(formData.estimated_age_years) : null,
+      estimated_age_months: formData.birth_date_unknown && formData.estimated_age_months !== "" ? Number(formData.estimated_age_months) : null,
+      vaccinations:formData.vaccinations.map((v)=>({...v,vaccinated_at:v.vaccinated_at || null,next_due_at:v.next_due_at || null})),
       description: formData.description || null,
       photo_url: formData.photo_url || null,
       max_hours_alone: Number(formData.max_hours_alone),
       needed_by: formData.is_urgent && formData.needed_by ? formData.needed_by : null,
     };
 
-    setSaving(true);
-    try {
+    await run({
+      title: editingId ? "Save changes to " + formData.name + "?" : "Add " + formData.name + "?",
+      message: editingId ? "The animal's profile, health records and care rules will be updated. These details affect foster matching." : "This creates a rescue animal profile visible to foster volunteers. Review the health details and care rules before adding it.",
+      confirmLabel: editingId ? "Save Changes" : "Add Animal",
+    }, async () => {
       if (editingId) {
-        // UPDATE
-        await api.put(`/admin/animals/${editingId}`, payload);
-        notify(`${formData.name} updated.`);
+        await api.put('/admin/animals/' + editingId, payload);
+        notify(formData.name + " updated.");
       } else {
-        // CREATE
-        await api.post("/admin/animals", payload);
-        notify(`${formData.name} added. Volunteers can see them now.`);
+        await api.post('/admin/animals', payload);
+        notify(formData.name + " added. Volunteers can see them now.");
       }
-
       closeForm();
       refreshAnimals();
-    } catch (error) {
-      console.error(error);
-      notify(errorMessage(error), "error");
-    } finally {
-      setSaving(false);
-    }
+    });
   };
 
   // EDIT
   const editAnimal = (animal) => {
     setEditingId(animal.id);
+    setMixedBreed(animal.breed?.startsWith("Mixed breed") || false);
 
     // a saved breed that isn't in the list was typed in with "Other"
     setCustomBreed(Boolean(animal.breed) && !breedsFor(animal.species).includes(animal.breed));
@@ -261,9 +284,15 @@ export default function Animals() {
     setFormData({
       name: animal.name,
       species: animal.species,
-      breed: animal.breed || "",
+      breed: animal.breed?.startsWith("Mixed breed: ") ? animal.breed.slice(13) : animal.breed || "",
       sex: animal.sex || "",
-      age: animal.age,
+      birth_date: animal.birth_date || "",
+      birth_date_unknown: !animal.birth_date,
+      estimated_age_years: animal.estimated_age_years ?? "",
+      estimated_age_months: animal.estimated_age_months ?? "",
+      health_status: animal.health_status || "Records Unavailable",
+      sterilization_status: normalizeSterilization(animal.sex, animal.sterilization_status),
+      vaccinations: animal.vaccinations || [],
       description: animal.description || "",
       photo_url: animal.photo_url || "",
       apartment_ok: animal.apartment_ok,
@@ -272,6 +301,9 @@ export default function Animals() {
       good_with_dogs: animal.good_with_dogs,
       kids_ok: animal.kids_ok,
       max_hours_alone: animal.max_hours_alone,
+      care_rules_confirmed: false,
+      urgent_reason: animal.urgent_reason || "",
+      urgent_notes: animal.urgent_notes || "",
       is_urgent: animal.is_urgent,
       needed_by: animal.needed_by || "",
       status: animal.status,
@@ -281,27 +313,15 @@ export default function Animals() {
   };
 
   // DELETE
-  const deleteAnimal = async (animal) => {
-    const confirmDelete = await confirm({
-      title: `Delete ${animal.name}?`,
-      message: "Their applications, placements and history will be deleted too. This can't be undone.",
-      confirmLabel: "Delete animal",
-      danger: true,
-    });
-
-    if (!confirmDelete) {
-      return;
-    }
-
-    try {
-      await api.delete(`/admin/animals/${animal.id}`);
-      notify(`${animal.name} was deleted.`, "info");
-      refreshAnimals();
-    } catch (error) {
-      console.error(error);
-      notify(errorMessage(error), "error");
-    }
-  };
+  const deleteAnimal = (animal) => run({
+    title: "Delete " + animal.name + "?",
+    message: "Their applications, placements and history will also be deleted. This cannot be undone.",
+    confirmLabel: "Delete", danger: true,
+  }, async () => {
+    await api.delete('/admin/animals/' + animal.id);
+    notify(animal.name + " was deleted.", "info");
+    refreshAnimals();
+  });
 
   return (
     <div className="stack animals-page">
@@ -312,7 +332,7 @@ export default function Animals() {
             {animals.length} animal{animals.length === 1 ? "" : "s"} shown
           </p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={addAnimal}>
+        <button type="button" className="btn btn-primary" disabled={saving} onClick={addAnimal}>
           + Add animal
         </button>
       </div>
@@ -371,27 +391,34 @@ export default function Animals() {
             <article className="animal-post" key={animal.id} aria-labelledby={`animal-${animal.id}-name`}>
               <header className="animal-post-head">
                 <span className="animal-post-avatar" aria-hidden="true">
-                  {animal.species === "cat" ? "🐱" : "🐶"}
+                  <Icon name={animal.species === "cat" ? "cat" : "dog"} size={22}/>
                 </span>
                 <div className="animal-post-title">
                   <h3 id={`animal-${animal.id}-name`}>{animal.name}</h3>
-                  <p className="muted small">
-                    {animal.species === "cat" ? "Cat" : "Dog"} · {animal.age}
-                    {animal.sex ? ` · ${animal.sex}` : ""}
-                    {animal.breed ? ` · ${animal.breed}` : ""}
-                  </p>
+                  <ul className="animal-post-meta muted" aria-label="Animal details">
+                    <li>{animal.species === "cat" ? "Cat" : "Dog"}</li>
+                    <li>{animal.age}</li>
+                    {animal.sex && <li>{animal.sex}</li>}
+                    {animal.breed && <li>{animal.breed}</li>}
+                  </ul>
                 </div>
                 <div className="animal-post-flags">
                   {animal.is_urgent && (
                     <span className="badge badge-urgent">
-                      Urgent{animal.needed_by ? ` · by ${formatDate(animal.needed_by)}` : ""}
+                      {urgencyText(animal)}
                     </span>
                   )}
                   <StatusPill status={animal.status} />
                 </div>
               </header>
 
-              {animal.description && <p className="animal-post-text">{animal.description}</p>}
+              <div className="animal-post-details">
+                <dl className="animal-post-health">
+                  <div><dt>Health</dt><dd>{animal.health_status || "Unknown"}</dd></div>
+                  <div><dt>Spay / neuter</dt><dd>{normalizeSterilization(animal.sex, animal.sterilization_status)}</dd></div>
+                </dl>
+                {animal.description && <p className="animal-post-text">{animal.description}</p>}
+              </div>
 
               <div className="animal-post-photo">
                 <PetPhoto pet={animal} />
@@ -406,14 +433,14 @@ export default function Animals() {
               </div>
 
               <div className="animal-post-actions">
-                <button type="button" onClick={() => editAnimal(animal)}>
-                  <span aria-hidden="true">✏️</span> Edit
+                <button type="button" disabled={saving} onClick={() => editAnimal(animal)}>
+                  <Icon name="edit" size={17}/> Edit
                 </button>
                 <button type="button" onClick={() => setHistoryFor(animal)}>
-                  <span aria-hidden="true">🕑</span> History
+                  <Icon name="history" size={17}/> History
                 </button>
-                <button type="button" className="animal-post-delete" onClick={() => deleteAnimal(animal)}>
-                  <span aria-hidden="true">🗑️</span> Delete
+                <button type="button" className="animal-post-delete" disabled={saving} onClick={() => deleteAnimal(animal)}>
+                  <Icon name="trash" size={17}/> Delete
                 </button>
               </div>
             </article>
@@ -425,14 +452,15 @@ export default function Animals() {
         ref={dialogRef}
         className="modal"
         aria-labelledby="animal-form-title"
+        onCancel={(e) => { if (saving) e.preventDefault(); }}
         onClose={resetForm}
-        onClick={(e) => e.target === dialogRef.current && closeForm()}
+        onClick={(e) => !saving && e.target === dialogRef.current && closeForm()}
       >
-        <form className="modal-form" onSubmit={handleSubmit}>
+        <ValidatedForm className="modal-form" onSubmit={handleSubmit}>
           <div className="modal-head">
             <h2 id="animal-form-title">{editingId ? `Edit ${formData.name || "animal"}` : "Add animal"}</h2>
-            <button type="button" className="modal-close" aria-label="Close" onClick={closeForm}>
-              ×
+            <button type="button" className="modal-close" aria-label="Close" disabled={saving} onClick={closeForm}>
+              <Icon name="x"/>
             </button>
           </div>
 
@@ -441,7 +469,7 @@ export default function Animals() {
               <h3>Basic info</h3>
               <div className="field-grid">
                 <label className="field">
-                  Name
+                  <span>Name <span className="required-mark" aria-hidden="true">*</span></span>
                   <input type="text" name="name" value={formData.name} onChange={handleChange} required />
                 </label>
 
@@ -457,7 +485,7 @@ export default function Animals() {
                   <label htmlFor="animal-breed">Breed</label>
                   <select
                     id="animal-breed"
-                    value={customBreed ? OTHER_BREED : formData.breed}
+                    value={mixedBreed ? "Mixed breed" : customBreed ? OTHER_BREED : formData.breed}
                     onChange={handleBreedSelect}
                   >
                     <option value="">Not sure / unknown</option>
@@ -467,15 +495,18 @@ export default function Animals() {
                     <option value={OTHER_BREED}>Other (type it in)</option>
                   </select>
 
-                  {customBreed && (
+                  <datalist id="breed-suggestions">{breedsFor(formData.species).filter((breed) => breed !== "Mixed breed").map((breed) => <option key={breed} value={breed} />)}</datalist>
+                  {(customBreed || mixedBreed) && (
                     <input
                       type="text"
                       name="breed"
-                      aria-label="Other breed"
+                      aria-label={mixedBreed ? "Mixed breed details" : "Other breed"}
+                      list="breed-suggestions"
                       placeholder="Type the breed"
-                      maxLength={100}
+                      maxLength={mixedBreed ? 87 : 100}
                       value={formData.breed}
                       onChange={handleChange}
+                      required={mixedBreed}
                       autoFocus
                     />
                   )}
@@ -490,28 +521,41 @@ export default function Animals() {
                   </select>
                 </label>
 
-                <label className="field">
-                  Age
-                  <input
-                    type="text"
-                    name="age"
-                    placeholder="e.g. 2 yrs"
-                    value={formData.age}
-                    onChange={handleChange}
-                    required
-                  />
+                <fieldset className="animal-age-group">
+                  <legend>Birthday & age</legend>
+                  <p className="field-hint">Add a known birthday, or use an estimated age when rescue records are incomplete.</p>
+                  <div className="animal-age-fields">
+                <label className="field">Date of Birth
+                  <input type="date" name="birth_date" max={localToday()} value={formData.birth_date} disabled={formData.birth_date_unknown} onChange={(e) => setFormData({...formData,birth_date:e.target.value,estimated_age_years:"",estimated_age_months:""})} />
+                  <span className="field-hint" aria-live="polite">{formData.birth_date && !formData.birth_date_unknown ? animalAge(formData.birth_date) : estimatedAge(formData.estimated_age_years,formData.estimated_age_months)}</span>
                 </label>
-
-                <label className="field">
-                  Status
-                  <select name="status" value={formData.status} onChange={handleChange}>
-                    {STATUSES.map((status) => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </label>
+                <label className="check"><input type="checkbox" name="birth_date_unknown" checked={formData.birth_date_unknown} onChange={(e) => setFormData({...formData,birth_date_unknown:e.target.checked,birth_date:"",estimated_age_years:"",estimated_age_months:""})} />Date of birth unknown</label>
+                {formData.birth_date_unknown && <div className="field-grid">
+                  <label className="field">Estimated age in years (optional)<input type="number" name="estimated_age_years" min="0" max="100" step="1" placeholder="Years" value={formData.estimated_age_years} onChange={handleChange} /></label>
+                  <label className="field">Estimated age in months (optional)<input type="number" name="estimated_age_months" min="0" max="11" step="1" placeholder="Months (0-11)" value={formData.estimated_age_months} onChange={handleChange} /></label>
+                </div>}
+                  </div>
+                </fieldset>
+                <label className="field">Health Status<select name="health_status" value={formData.health_status} onChange={(e) => setFormData({...formData, health_status:e.target.value, vaccinations: ["Vaccinated", "Vaccination Due Soon"].includes(e.target.value) ? formData.vaccinations : []})}>{HEALTH_STATUSES.map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label className="field">Spay/Neuter Status<select name="sterilization_status" value={formData.sterilization_status} onChange={handleChange}>{sterilizationOptions(formData.sex).map((value) => <option key={value}>{value}</option>)}</select></label>
+                <p className="muted small">Status: {editingId ? formData.status : "Awaiting Foster"}. Updated automatically through applications and placements.</p>
               </div>
 
+              {["Vaccinated", "Vaccination Due Soon"].includes(formData.health_status) && <fieldset className="plain stack-sm"><legend>Vaccines (select all that apply)</legend>
+                {vaccinesFor(formData.species).map((type) => {
+                  const record = formData.vaccinations.find((v) => v.type === type);
+                  const update = (field, value) => setFormData((current) => ({...current, vaccinations:current.vaccinations.map((v) => v.type === type ? {...v,[field]:value} : v)}));
+                  return <div className="card stack-sm" key={type}>
+                    <label className="check"><input type="checkbox" checked={Boolean(record)} onChange={(e) => setFormData({...formData, vaccinations:e.target.checked ? [...formData.vaccinations,{type,other_name:"",vaccinated_at:null,next_due_at:""}] : formData.vaccinations.filter((v) => v.type !== type)})} />{type}</label>
+                    {record && <div className="field-grid">
+                      {type === "Other" && <label className="field"><span>Vaccine name <span className="required-mark" aria-hidden="true">*</span></span><input value={record.other_name || ""} maxLength={100} onChange={(e) => update("other_name",e.target.value)} required /></label>}
+                      <label className="check"><input type="checkbox" aria-label={"Unknown vaccination date for " + type} checked={record.vaccinated_at == null} onChange={(e) => update("vaccinated_at",e.target.checked ? null : "")} />Vaccination date unknown</label>
+                      <label className="field">Vaccination date (optional)<input aria-label={"Vaccination date for " + type} type="date" max={localToday()} min={formData.birth_date || undefined} value={record.vaccinated_at || ""} disabled={record.vaccinated_at == null} onChange={(e) => update("vaccinated_at",e.target.value)} /></label>
+                      <label className="field">Next due date<input type="date" min={record.vaccinated_at || undefined} value={record.next_due_at || ""} onChange={(e) => update("next_due_at",e.target.value)} required={formData.health_status === "Vaccination Due Soon"} /></label>
+                    </div>}
+                  </div>;
+                })}
+              </fieldset>}
               <label className="field">
                 Description
                 <textarea name="description" rows="3" value={formData.description} onChange={handleChange} />
@@ -567,27 +611,19 @@ export default function Animals() {
               <h3>Care rules</h3>
               <p className="muted small">Used to match this animal with volunteers' homes.</p>
 
-              <div className="option-grid">
-                {CARE_RULES.map((rule) => (
-                  <label
-                    key={rule.name}
-                    className={formData[rule.name] ? "option option-selected" : "option"}
-                  >
-                    <input
-                      type="checkbox"
-                      name={rule.name}
-                      checked={formData[rule.name]}
-                      onChange={handleChange}
-                    />
-                    <strong>{rule.label}</strong>
-                  </label>
-                ))}
-              </div>
-
+              {CARE_RULES.map((rule) => <fieldset className="plain" key={rule.name}>
+                <legend>{rule.label} <span className="required-mark" aria-hidden="true">*</span></legend>
+                <OptionGroup name={rule.name} value={formData[rule.name]} options={[{value:true,label:rule.yes}, {value:false,label:rule.no}]} onChange={(value) => setFormData((current) => ({...current, [rule.name]:value}))} />
+              </fieldset>)}
+              {formData.is_urgent && formData.needed_by && urgencyText(formData) === "Overdue" && <p className="notice notice-info">Overdue: renew the deadline or clear urgency.</p>}
+              <label className="check"><input type="checkbox" name="is_urgent" checked={formData.is_urgent} onChange={handleChange} /> Mark as urgent</label>
+              <p className="muted small">Use urgent for time-sensitive welfare or shelter capacity needs. This affects listing order, never the compatibility score or safety requirements.</p>
+              {formData.is_urgent && <label className="field"><span>Reason for urgency <span className="required-mark" aria-hidden="true">*</span></span><select name="urgent_reason" value={formData.urgent_reason} onChange={handleChange} required><option value="">Select a reason</option>{["Medical care", "Shelter capacity", "Transport deadline"].map(reason => <option key={reason}>{reason}</option>)}</select></label>}
+              {formData.is_urgent && <label className="field"><span>Optional urgency notes</span><textarea name="urgent_notes" value={formData.urgent_notes} onChange={handleChange} maxLength={500} /></label>}
               {formData.is_urgent && (
                 <label className="field deadline-field">
-                  Needs a home by (optional)
-                  <input type="date" name="needed_by" value={formData.needed_by} onChange={handleChange} />
+                  Needs a home by (required)
+                  <input type="date" name="needed_by" value={formData.needed_by} onChange={handleChange} required />
                   <span className="field-hint">Shown to volunteers on the urgent badge and on your dashboard.</span>
                 </label>
               )}
@@ -606,23 +642,24 @@ export default function Animals() {
                 <legend>Time alone</legend>
                 <OptionGroup
                   name="max_hours_alone"
-                  value={Number(formData.max_hours_alone)}
+                  value={formData.max_hours_alone === "" ? "" : Number(formData.max_hours_alone)}
                   options={ANIMAL_HOURS}
                   onChange={(value) => setFormData({ ...formData, max_hours_alone: value })}
                 />
               </fieldset>
+              <label className="check"><input type="checkbox" name="care_rules_confirmed" checked={formData.care_rules_confirmed} onChange={handleChange} required /> I have assessed and defined every care, behavior and household safety rule for this pet.</label>
             </section>
           </div>
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-outline" onClick={closeForm}>
+            <button type="button" className="btn btn-outline" disabled={saving} onClick={closeForm}>
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? "Saving..." : editingId ? "Save changes" : "Add animal"}
             </button>
           </div>
-        </form>
+        </ValidatedForm>
       </dialog>
 
       {historyFor && <AnimalHistory animal={historyFor} onClose={() => setHistoryFor(null)} />}

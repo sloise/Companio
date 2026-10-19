@@ -12,7 +12,7 @@ class EnsureAdmin
     {
         $user = $request->user();
 
-        if (! $user || $user->role !== 'admin') {
+        if (! $user || ! in_array($user->role, ['admin', 'super_admin'], true)) {
             return response()->json(['message' => 'This area is for shelter staff only.'], 403);
         }
 

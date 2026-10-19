@@ -1,3 +1,4 @@
+import ValidatedForm from "../components/ValidatedForm";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
@@ -30,7 +31,7 @@ export default function ForgotPassword() {
     <div className="auth-page">
       <Logo />
 
-      <form className="auth-card" onSubmit={handleSubmit}>
+      <ValidatedForm className="auth-card" onSubmit={handleSubmit}>
         <div className="auth-card-head">
           <h1>Forgot your password?</h1>
           <p className="muted">Enter your email and we&apos;ll send you a link to choose a new one.</p>
@@ -41,8 +42,7 @@ export default function ForgotPassword() {
         ) : (
           <>
             <label className="field">
-              Email
-              <input
+              <span>Email <span className="required-mark" aria-hidden="true">*</span></span><input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -60,7 +60,7 @@ export default function ForgotPassword() {
         <p className="muted" style={{ textAlign: "center" }}>
           <Link to="/login">Back to sign in</Link>
         </p>
-      </form>
+      </ValidatedForm>
     </div>
   );
 }

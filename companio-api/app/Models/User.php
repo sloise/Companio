@@ -12,6 +12,7 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
+        'photo_url',
         'name',
         'email',
         'password',
@@ -21,6 +22,9 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'shelter_id_path',
+        'shelter_key',
+        'archived_email', 'archived_at',
     ];
 
     protected function casts(): array

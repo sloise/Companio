@@ -1,3 +1,5 @@
+import Icon from "../components/Icon";
+import CompanionArt from "../components/CompanionArt";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
@@ -38,7 +40,7 @@ const DEFAULT_FILTERS = {
 };
 
 const SORT_NOTES = {
-  match: "Sorted by best match first. Urgent pets are flagged.",
+  match: "Best match first; urgency breaks ties.",
   urgent: "Urgent pets first, then best match.",
   newest: "Newest arrivals first.",
 };
@@ -84,6 +86,8 @@ export default function MatchFeed() {
 
   // SEARCH + FILTER values. Species is filtered here in the browser so the counts stay visible.
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [feedView, setFeedView] = useState("gallery");
 
   // WELCOME TOUR - starts for new accounts, or from "Take the tour" in the account menu (?tour=1)
   const [searchParams, setSearchParams] = useSearchParams();
@@ -134,7 +138,7 @@ export default function MatchFeed() {
     {
       target: '[data-tour="nav-profile"]',
       title: "Your home profile",
-      body: "Moved or got a new pet? Update your answers here and your match scores update too.",
+      body: "View saved details and screening here. Profile edits have a seven-day cooldown and require shelter re-screening.",
     },
     {
       target: '[data-tour="account"]',
@@ -206,20 +210,23 @@ export default function MatchFeed() {
   const shown = pets
     .filter((pet) => (pet.species === "dog" ? filters.dogs : filters.cats) && (!filters.savedOnly || isSaved(pet.id)))
     .sort((a, b) => Number(isSaved(b.id)) - Number(isSaved(a.id)));
+  const urgentPets = shown.filter(pet => pet.is_urgent && pet.match.checks.every(check => check.ok));
+  const regularPets = shown.filter(pet => !urgentPets.includes(pet));
   const savedShown = shown.filter((pet) => isSaved(pet.id)).length;
   const firstName = user.name.split(" ")[0];
 
   return (
     <div className="feed-layout">
-      <aside className="card filter-panel" aria-label="Filters">
+      <aside className="card filter-panel" aria-label="Filters" data-expanded={filtersExpanded}>
         <div className="filter-panel-head">
-          <h2>Filters</h2>
+          <h2><Icon name="search" size={19}/> Find your fit</h2>
+          <button className="filter-expander btn btn-outline btn-sm" type="button" aria-expanded={filtersExpanded} aria-controls="match-filter-search" onClick={() => setFiltersExpanded(!filtersExpanded)}>{filtersExpanded ? "Hide filters" : "Show filters"}</button>
           <button type="button" className="link-btn" onClick={() => setFilters(DEFAULT_FILTERS)}>
             Reset
           </button>
         </div>
 
-        <label className="search-box">
+        <label className="search-box" id="match-filter-search">
           <span className="sr-only">Search by name</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <circle cx="11" cy="11" r="7" />
@@ -277,24 +284,9 @@ export default function MatchFeed() {
           <div className="filter-home">
             <strong>Your home</strong>
             <p className="muted">{homeSummary(profile)}</p>
-            <Link to="/questionnaire">Update answers</Link>
+            <Link to="/profile">View profile and screening</Link>
           </div>
         )}
-
-        <FosterLimitCard limit={fosterLimit} compact />
-      </aside>
-
-      <section className="feed-main" aria-label="Matched pets">
-        <div className="feed-head">
-          <div>
-            <h1>
-              Hi {firstName}, {shown.length} {shown.length === 1 ? "pet fits" : "pets fit"} your home
-            </h1>
-            <p className="muted">
-              {savedShown > 0 && !filters.savedOnly && "Your saved pets are shown first. "}
-              {SORT_NOTES[filters.sort]}
-            </p>
-          </div>
 
           <label className="sort-field">
             Sort
@@ -304,14 +296,35 @@ export default function MatchFeed() {
               <option value="newest">Newest</option>
             </select>
           </label>
+        <p className="muted small">Urgent means the shelter identified a time-sensitive welfare or capacity need. Urgency prioritizes listing order; compatibility and safety rules still apply.</p>
+        <FosterLimitCard limit={fosterLimit} compact />
+      </aside>
+
+      <section className="feed-main" aria-label="Matched pets">
+        <div className="feed-head">
+          <div className="feed-welcome-copy">
+            <span className="feed-eyebrow"><Icon name="paw" size={15}/> YOUR NEXT CHAPTER STARTS HERE</span>
+            <h1>
+              Hi {firstName}, {shown.length} {shown.length === 1 ? "pet fits" : "pets fit"} your home
+            </h1>
+            <p className="muted">
+              {savedShown > 0 && !filters.savedOnly && "Your saved pets are shown first. "}
+              {SORT_NOTES[filters.sort]}
+            </p>
+            <div className="feed-welcome-metrics"><span><Icon name="heart" size={15}/><strong>{shown.length}</strong> potential companions</span><span><Icon name="home" size={15}/> Matched to your home</span></div>
+          </div>
+          <div className="feed-welcome-art" aria-hidden="true"><span className="welcome-art-orbit"/><CompanionArt pose="happy"/><span className="welcome-art-label">Room for a little love.</span></div>
         </div>
+
+        <nav className="foster-journey" aria-label="Your foster journey"><Link to="/profile"><span className="journey-number"><Icon name="home" size={16}/></span><span><small>01 / YOUR FOUNDATION</small><strong>A home to share</strong></span><Icon name="check" size={15}/></Link><a href="#your-companions" aria-current="step"><span className="journey-number"><Icon name="paw" size={16}/></span><span><small>02 / THE CONNECTION</small><strong>Find your companion</strong></span></a><Link to="/applications"><span className="journey-number"><Icon name="heart" size={16}/></span><span><small>03 / A NEW CHAPTER</small><strong>Follow your requests</strong></span></Link></nav>
+        <div className="companion-list-heading" id="your-companions"><div><span className="eyebrow">SMALL PAWS. BIG POSSIBILITIES.</span><h2>{filters.savedOnly ? "Your saved companions" : "Meet your possibilities"}</h2></div><div className="companion-view-controls"><span>{shown.length} {shown.length === 1 ? "companion" : "companions"}</span><div role="group" aria-label="Pet display"><button type="button" aria-label="Gallery view" aria-pressed={feedView === "gallery"} onClick={() => setFeedView("gallery")}><Icon name="grid" size={16}/></button><button type="button" aria-label="List view" aria-pressed={feedView === "list"} onClick={() => setFeedView("list")}><Icon name="clipboard" size={16}/></button></div></div></div>
 
         {/* saved pets that were placed with someone since they were saved */}
         {foundHomes.map((pet) => (
           <div className="notice notice-info found-home" key={pet.id} role="status">
             <span>
               <strong>{pet.name}</strong>, who you saved, has found a home
-              {pet.status === "Adopted" ? " and was adopted" : " with a foster"}. 🎉
+              {pet.status === "Adopted" ? " and was adopted" : " with a foster"}.
             </span>
             <button type="button" className="link-btn" onClick={() => forget(pet.id)}>
               Dismiss
@@ -336,9 +349,12 @@ export default function MatchFeed() {
             </button>
           </div>
         ) : (
-          shown.map((pet) => (
+          <div className="stack">
+          {urgentPets.length > 0 && <section aria-label="Urgent pets"><h2>Urgent pets needing a home</h2><p className="muted">All care checks pass for your home.</p><div className="match-collection" data-view={feedView}>{urgentPets.map(pet => <MatchRow key={pet.id} pet={pet} saved={isSaved(pet.id)} onToggleSave={toggleSaved} />)}</div></section>}
+          {regularPets.length > 0 && <h2>More companions</h2>}
+          <div className="match-collection" data-view={feedView}>{regularPets.map((pet) => (
             <MatchRow key={pet.id} pet={pet} saved={isSaved(pet.id)} onToggleSave={toggleSaved} />
-          ))
+          ))}</div></div>
         )}
       </section>
 

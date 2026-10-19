@@ -6,6 +6,8 @@ use App\Models\Animal;
 use App\Models\FosterApplication;
 use App\Models\Placement;
 use App\Models\User;
+use App\Models\VolunteerProfile;
+use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
@@ -73,14 +75,15 @@ class DashboardController extends Controller
     }
 
     // READ - small numbers for the sidebar badges
-    public function counts()
+    public function counts(Request $request)
     {
         return response()->json([
             'pending_applications' => FosterApplication::where('status', 'Pending')->count(),
             'overdue_placements' => Placement::where('status', 'Active')
                 ->whereDate('expected_return_date', '<', now()->toDateString())
                 ->count(),
-            'staff_requests' => User::where('role', 'staff_pending')->count(),
+            'pending_profiles' => VolunteerProfile::where('review_status', 'Pending')->count(),
+            ...($request->user()->role === 'super_admin' ? ['staff_requests' => User::where('role', 'staff_pending')->count()] : []),
             'foster_requests' => Placement::where('status', 'Active')->whereNotNull('foster_request')->count(),
         ]);
     }

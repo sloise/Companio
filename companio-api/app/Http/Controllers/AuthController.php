@@ -4,38 +4,78 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     // REGISTER - creates a foster volunteer, or a shelter staff request.
     // Staff requests get the "staff_pending" role: they cannot log in or open admin pages
-    // until an existing admin approves them (see StaffRequestController).
+    // until the Super Admin approves them (see StaffRequestController).
     public function register(Request $request)
     {
         $this->normalizeEmail($request);
 
         $validated = $request->validate([
             'name' => 'required|string|max:100',
-            'email' => 'required|email|max:150|unique:users,email',
+            'email' => ['required', 'email', 'max:150', Rule::unique('users', 'email')->where(fn ($q) => $q->where('role', '!=', 'staff_rejected'))],
             'password' => 'required|string|min:8|max:100',
             'account_type' => 'nullable|in:volunteer,shelter',
+            'shelter_id' => 'required_if:account_type,shelter|nullable|file|mimes:jpg,jpeg,png,pdf|extensions:jpg,jpeg,png,pdf|max:4096',
+            'role' => 'prohibited',
+            'approval_status' => 'prohibited',
+            'status' => 'prohibited',
         ]);
 
         $isShelter = ($validated['account_type'] ?? 'volunteer') === 'shelter';
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => $validated['password'],   // hashed by the User model cast
-            'role' => $isShelter ? 'staff_pending' : 'volunteer',
-        ]);
+        $path = $isShelter ? $request->file('shelter_id')->store('shelter-ids', 'local') : null;
+        abort_if($isShelter && ! $path, 500, 'Unable to store ID. Please try again.');
+        try {
+            $user = DB::transaction(function () use ($validated, $isShelter, $path) {
+                $previous = User::where('email', $validated['email'])->lockForUpdate()->first();
+                if ($previous) {
+                    if ($previous->role !== 'staff_rejected') {
+                        throw ValidationException::withMessages(['email' => 'This email is already registered.']);
+                    }
+                    $previous->tokens()->delete();
+                    $previous->forceFill([
+                        'archived_email' => $previous->email,
+                        'archived_at' => now(),
+                        'email' => Str::uuid().'@rejected.invalid',
+                        'password' => Str::random(64),
+                    ])->save();
+                }
+                DB::table('password_reset_tokens')->where('email', $validated['email'])->delete();
+                $user = User::create([
+                    'name' => $validated['name'],
+                    'email' => $validated['email'],
+                    'password' => $validated['password'],   // hashed by the User model cast
+                    'role' => $isShelter ? 'staff_pending' : 'volunteer',
+                ]);
 
+                if ($isShelter) {
+                    $user->forceFill([
+                        'shelter_id_path' => $path,
+                    ])->save();
+                }
+
+                return $user;
+            });
+        } catch (\Throwable $error) {
+            if ($path) {
+                Storage::disk('local')->delete($path);
+            }
+            throw $error;
+        }
         if ($isShelter) {
             return response()->json([
-                'message' => 'Request sent. An administrator will confirm your shelter account before you can sign in.',
+                'message' => 'Request sent. The Super Admin will review your shelter account before you can sign in.',
                 'pending' => true,
             ], 201);
         }
@@ -65,9 +105,9 @@ class AuthController extends Controller
             ]);
         }
 
-        if ($user->role === 'staff_pending') {
+        if (in_array($user->role, ['staff_pending', 'staff_rejected'], true)) {
             throw ValidationException::withMessages([
-                'email' => ['Your shelter account is still waiting for an administrator to confirm it.'],
+                'email' => [$user->role === 'staff_rejected' ? 'Your shelter application was rejected.' : 'Your shelter account is waiting for Super Admin approval.'],
             ]);
         }
 

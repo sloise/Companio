@@ -6,14 +6,18 @@ export default function ProtectedRoute({ role }) {
   const { user } = useAuth();
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/" replace />;
   }
 
-  if (role === "admin" && user.role !== "admin") {
+  if (["staff_pending", "staff_rejected"].includes(user.role)) return <Navigate to="/login" replace />;
+
+  if (role === "super_admin" && user.role !== "super_admin") return <Navigate to="/admin" replace />;
+
+  if (role === "admin" && !["admin", "super_admin"].includes(user.role)) {
     return <Navigate to="/matches" replace />;
   }
 
-  if (role === "volunteer" && user.role === "admin") {
+  if (role === "volunteer" && ["admin", "super_admin"].includes(user.role)) {
     return <Navigate to="/admin" replace />;
   }
 

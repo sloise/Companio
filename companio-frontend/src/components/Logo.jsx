@@ -1,6 +1,10 @@
+import { Link } from "react-router-dom";
+import { useAuth } from "../context/auth";
 export default function Logo({ light = false }) {
+  const { user } = useAuth();
+  const home = user ? (["admin", "super_admin"].includes(user.role) ? "/admin" : "/matches") : "/";
   return (
-    <span className={light ? "logo logo-light" : "logo"}>
+    <Link to={home} aria-label="Companio home" className={light ? "logo logo-light" : "logo"}>
       <span className="logo-mark" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="4" r="2" />
@@ -10,6 +14,6 @@ export default function Logo({ light = false }) {
         </svg>
       </span>
       <span className="logo-text">Companio</span>
-    </span>
+    </Link>
   );
 }

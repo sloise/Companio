@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class FosterApplication extends Model
 {
     protected $fillable = [
+        'screening', 'documents', 'profile_snapshot', 'verification_completed_at', 'verified_by',
         'user_id',
         'animal_id',
         'full_name',
@@ -21,9 +22,15 @@ class FosterApplication extends Model
         'decided_at',
     ];
 
+    protected $hidden = ['documents'];
+
     protected function casts(): array
     {
         return [
+            'screening' => 'array',
+            'documents' => 'array',
+            'profile_snapshot' => 'array',
+            'verification_completed_at' => 'datetime',
             'target_date' => 'date:Y-m-d',
             'match_score' => 'integer',
             'decided_at' => 'datetime',

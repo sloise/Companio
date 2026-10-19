@@ -1,3 +1,4 @@
+import useConfirmedAction from "../../utils/useConfirmedAction";
 import { useEffect, useState } from "react";
 import api, { errorMessage } from "../../api/client";
 import { useFeedback } from "../../context/feedback";
@@ -19,8 +20,9 @@ function isOverdue(placement) {
 }
 
 export default function Placements() {
-  const { notify, confirm } = useFeedback();
+  const { notify } = useFeedback();
 
+  const {run,busy} = useConfirmedAction();
   const [placements, setPlacements] = useState([]);
   const [statusFilter, setStatusFilter] = useState("Active");
   const [loading, setLoading] = useState(true);
@@ -47,51 +49,20 @@ export default function Placements() {
   }, [statusFilter, reload]);
 
   // UPDATE - change the placement stage (the foster is notified)
-  const updateStatus = async (placement, status) => {
-    const adopted = status === "Adopted";
-    const confirmed = await confirm({
-      title: adopted ? `Mark ${placement.animal.name} as adopted?` : `Mark ${placement.animal.name} as returned?`,
-      message: adopted
-        ? "The animal's status becomes Adopted and the foster gets a thank-you notification."
-        : "The animal goes back to Awaiting Foster so new volunteers can apply.",
-      confirmLabel: adopted ? "Mark adopted" : "Mark returned",
-    });
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await api.patch(`/admin/placements/${placement.id}`, {
-        status,
-        expected_return_date: placement.expected_return_date,
-        notes: placement.notes,
-      });
-
-      notify(adopted ? `${placement.animal.name} was adopted! 🎉` : `${placement.animal.name} is back at the shelter and open for new fosters.`);
-      setReload((count) => count + 1);
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    }
-  };
-
-  // DELETE - "keep fostering": answer the foster's adopt / return request without ending the placement
-  const keepFostering = async (placement) => {
-    const confirmed = await confirm({
-      title: `Keep ${placement.animal.name} in foster care for now?`,
-      message: `${placement.application?.full_name} will be told their request was answered and that ${placement.animal.name} stays with them for now.`,
-      confirmLabel: "Keep fostering",
-    });
-    if (!confirmed) return;
-
-    try {
-      const response = await api.delete(`/admin/placements/${placement.id}/request`);
-      notify(response.data.message);
-      setReload((count) => count + 1);
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    }
-  };
+  const updateStatus = (placement, status) => run({
+    title:status === "Adopted" ? "Confirm adoption of " + placement.animal.name + "?" : "Confirm return / reclaim of " + placement.animal.name + "?",
+    message:status === "Adopted" ? "This ends the placement as adopted and notifies the foster. The placement cannot be reopened." : "This ends the placement and makes the animal available for fostering again. Confirm the animal has returned to the shelter.",
+    confirmLabel:status === "Adopted" ? "Confirm Adoption" : "Confirm Return",
+  }, async () => {
+    await api.patch('/admin/placements/'+placement.id,{status,expected_return_date:placement.expected_return_date,notes:placement.notes});
+    notify(status === "Adopted" ? placement.animal.name + " was adopted." : placement.animal.name + " is back at the shelter.");setReload((v)=>v+1);
+  });
+  const keepFostering = (placement) => run({
+    title:"Keep " + placement.animal.name + " in foster care?",
+    message:"The " + (placement.foster_request === "adopt" ? "adoption" : "return") + " request from " + placement.application?.full_name + " will be closed. The foster will be notified that the animal stays with them for now.",confirmLabel:"Keep Fostering",
+  }, async () => {
+    const response = await api.delete('/admin/placements/'+placement.id+'/request');notify(response.data.message);setReload((v)=>v+1);
+  });
 
   const overdueCount = placements.filter(isOverdue).length;
   const requestCount = placements.filter((p) => p.status === "Active" && p.foster_request).length;
@@ -150,8 +121,8 @@ export default function Placements() {
                     <p>
                       <strong>
                         {request === "adopt"
-                          ? `🏠 ${fosterName} wants to adopt ${placement.animal?.name}`
-                          : `↩ ${fosterName} wants to return ${placement.animal?.name}`}
+                          ? ` ${fosterName} wants to adopt ${placement.animal?.name}`
+                          : ` ${fosterName} wants to return ${placement.animal?.name}`}
                       </strong>
                       <span className="muted small"> · {timeAgo(placement.foster_requested_at)}</span>
                     </p>
@@ -198,24 +169,26 @@ export default function Placements() {
                   {placement.status === "Active" && (
                     <div className="row-actions">
                       {request && (
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => keepFostering(placement)}>
+                        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => keepFostering(placement)}>
                           Keep fostering
                         </button>
                       )}
                       <button
                         type="button"
                         className={request === "return" ? "btn btn-primary btn-sm" : "btn btn-outline btn-sm"}
-                        onClick={() => updateStatus(placement, "Returned")}
+                        disabled={busy} onClick={() => updateStatus(placement, "Returned")}
                       >
-                        Returned
+                        Return / reclaim
                       </button>
+                      {request === "adopt" && (
                       <button
                         type="button"
                         className={request === "return" ? "btn btn-outline btn-sm" : "btn btn-primary btn-sm"}
-                        onClick={() => updateStatus(placement, "Adopted")}
+                        disabled={busy} onClick={() => updateStatus(placement, "Adopted")}
                       >
                         Adopted
                       </button>
+                      )}
                     </div>
                   )}
                 </div>

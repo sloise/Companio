@@ -1,4 +1,10 @@
+import { LoadError } from "../components/PageStates";
+import CorgiLoader from "../components/CorgiLoader";
+import ValidatedForm from "../components/ValidatedForm";
+import useConfirmedAction from "../utils/useConfirmedAction";
+import { phoneProps } from "../utils/phone";
 import { useEffect, useState } from "react";
+import { useAuth } from "../context/auth";
 import { useNavigate } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
 import { useFeedback } from "../context/feedback";
@@ -6,6 +12,7 @@ import OptionGroup from "../components/OptionGroup";
 import { EXPERIENCE, HOURS_ALONE, HOUSING, KIDS, YARD } from "../constants";
 
 const EMPTY = {
+  name: "", phone: "", address: "", birth_date: "", emergency_name: "", emergency_phone: "",
   housing_type: "",
   yard: "",
   has_cats: false,
@@ -19,10 +26,14 @@ const REQUIRED = ["housing_type", "yard", "kids", "hours_alone", "experience"];
 
 export default function Questionnaire() {
   const navigate = useNavigate();
+  const { user, updateUser } = useAuth();
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const { notify } = useFeedback();
 
-  const [form, setForm] = useState(EMPTY);
-  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY, name: user.name });
+  const { run, busy: saving } = useConfirmedAction();
 
   // READ - fill the form with the saved answers (if any)
   useEffect(() => {
@@ -33,7 +44,10 @@ export default function Questionnaire() {
 
         // only a saved profile has an id - anything else means "not answered yet"
         if (p?.id) {
+          setProfile(p);
           setForm({
+            name: user.name, phone: p.phone || "", address: p.address || "", birth_date: p.birth_date || "",
+            emergency_name: p.emergency_name || "", emergency_phone: p.emergency_phone || "",
             housing_type: p.housing_type ?? "",
             yard: p.yard ?? "",
             has_cats: Boolean(p.has_cats),
@@ -44,12 +58,14 @@ export default function Questionnaire() {
           });
         }
       } catch (error) {
-        console.error("Error loading profile:", error);
+        setLoadError(errorMessage(error));
+      } finally {
+        setLoading(false);
       }
     };
 
     getProfile();
-  }, []);
+  }, [user.name]);
 
   const setField = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));
@@ -60,27 +76,25 @@ export default function Questionnaire() {
   // CREATE / UPDATE
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSaving(true);
-
-    try {
-      await api.put("/profile", {
-        ...form,
-        has_cats: Boolean(form.has_cats), // unticked = false ("no cats"), never missing
-        has_dogs: Boolean(form.has_dogs),
-        hours_alone: Number(form.hours_alone),
-      });
-      notify("Home profile saved! Your match scores are up to date.");
-      navigate("/matches");
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    } finally {
-      setSaving(false);
-    }
+    await run({
+      title: profile?.id ? "Save changes to " + user.name + "'s profile?" : "Complete " + user.name + "'s home profile?",
+      message: "Your personal and household details will be submitted for shelter screening. Further edits have a seven-day cooldown, and pending application verification will need to be reviewed again.",
+      confirmLabel: profile?.id ? "Save Changes" : "Submit Profile",
+    }, async () => {
+      const response = await api.put("/profile", { ...form, has_cats:Boolean(form.has_cats), has_dogs:Boolean(form.has_dogs), hours_alone:Number(form.hours_alone) });
+      updateUser(response.data.user);
+      notify(response.data.message);
+      navigate("/profile");
+    });
   };
+
+  const locked = profile?.next_edit_at && new Date(profile.next_edit_at) > new Date();
+  if (loading) return <CorgiLoader label="Loading your home profile..."/>;
+  if (loadError) return <LoadError message={loadError} onRetry={()=>window.location.reload()}/>;
 
   return (
     <div className="two-col">
-      <form className="stack" onSubmit={handleSubmit}>
+      <ValidatedForm className="stack" onSubmit={handleSubmit}>
         <div>
           <p className="eyebrow">Your home profile</p>
           <h1>Tell us about your home</h1>
@@ -90,6 +104,19 @@ export default function Questionnaire() {
           </p>
         </div>
 
+        <p className="notice notice-info">Profile edits are limited to once every seven days. Every saved change requires shelter re-screening before you can apply. Contact the shelter for urgent corrections.</p>
+        {locked && <p role="status">You can edit again on {new Date(profile.next_edit_at).toLocaleString()}. Your saved information is shown below.</p>}
+        <fieldset className="plain stack" disabled={Boolean(locked) || saving}>
+        <section className="card stack-sm">
+          <h2>Personal details and emergency caretaker</h2>
+          <p className="muted">These details are saved and attached to future applications. Your account email is {user.email}.</p>
+          {[
+            ['name', 'Full name', 'text'], ['phone', 'Mobile number', 'tel'], ['address', 'Home address', 'text'],
+            ['birth_date', 'Date of birth', 'date'], ['emergency_name', 'Emergency caretaker full name', 'text'],
+            ['emergency_phone', 'Emergency caretaker phone', 'tel'],
+          ].map(([name, label, type]) => <label className="field" key={name}><span>{label} <span className="required-mark" aria-hidden="true">*</span></span><input name={name} type={type} placeholder={name === "address" ? "House No., Street, Barangay, City, Province" : name === "emergency_name" ? "Enter the full name of the person responsible for the animal." : undefined} readOnly={name === "name" && !profile?.id} {...(type === "tel" ? phoneProps : {})} value={form[name]} maxLength={name === 'address' ? 255 : name.includes('phone') ? 13 : 100} onChange={(e) => setField(name, e.target.value)} required /></label>)}
+          <p className="muted small">Choose another person who has agreed to care for the pet in an emergency. Shelter staff will validate this contact.</p>
+        </section>
         <div className="progress">
           <div className="progress-bar">
             <div style={{ width: `${(answered / REQUIRED.length) * 100}%` }} />
@@ -153,8 +180,8 @@ export default function Questionnaire() {
         </fieldset>
 
         <fieldset className="card question">
-          <legend>5. How long is the pet usually alone each day?</legend>
-          <p className="muted">On a typical weekday.</p>
+          <legend>{form.has_cats || form.has_dogs ? '5. How long are your pets usually alone each day?' : '5. How long would a foster pet be alone each day?'}</legend>
+          <p className="muted">{form.has_cats || form.has_dogs ? 'On a typical weekday.' : 'You do not need an existing pet. Estimate how long your future foster would be alone using your usual work or school schedule.'}</p>
           <OptionGroup
             name="hours_alone"
             value={form.hours_alone}
@@ -179,10 +206,11 @@ export default function Questionnaire() {
             Back
           </button>
           <button type="submit" className="btn btn-primary btn-lg" disabled={saving}>
-            {saving ? "Saving..." : "See my matches"}
+            {saving ? "Saving..." : "Save for shelter screening"}
           </button>
         </div>
-      </form>
+        </fieldset>
+      </ValidatedForm>
 
       <aside className="card side-card">
         <h2>How matching works</h2>

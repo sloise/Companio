@@ -52,7 +52,8 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  const value = { user, isAdmin: user?.role === "admin", login, register, logout };
+  const updateUser = (next) => { localStorage.setItem("user", JSON.stringify(next)); setUser(next); };
+  const value = { updateUser, user, isAdmin: ["admin", "super_admin"].includes(user?.role), login, register, logout };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

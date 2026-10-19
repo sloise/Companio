@@ -1,6 +1,10 @@
+import Icon from "../../components/Icon";
+import useConfirmedAction from "../../utils/useConfirmedAction";
 import { useEffect, useState } from "react";
 import api, { errorMessage } from "../../api/client";
 import { useFeedback } from "../../context/feedback";
+import ProfileReviews from "../../components/ProfileReviews";
+import VerificationPanel from "../../components/VerificationPanel";
 import MatchBadge from "../../components/MatchBadge";
 import PetPhoto from "../../components/PetPhoto";
 import StatusPill from "../../components/StatusPill";
@@ -19,66 +23,29 @@ const STATUS_TABS = [
 // Staff notes + the Approve / Reject / Reopen buttons for one application.
 // It gets a new "key" for every application, so the notes box starts fresh each time.
 function DecisionPanel({ application, onChanged }) {
-  const { notify, confirm } = useFeedback();
+  const { notify } = useFeedback();
   const [staffNotes, setStaffNotes] = useState(application.staff_notes || "");
-  const [busy, setBusy] = useState(false);
+  const {run,busy} = useConfirmedAction();
 
   // UPDATE - approve or reject
-  const decide = async (status) => {
+  const decide = (status) => {
     const approving = status === "Approved";
-    const confirmed = await confirm({
-      title: approving
-        ? `Approve ${application.full_name} to foster ${application.animal.name}?`
-        : `Reject ${application.full_name}'s request?`,
-      message: approving
-        ? "A placement starts on their target date. Other pending requests for this pet will be closed and those applicants notified."
-        : "The applicant will be notified. You can reopen it later if this was a mistake.",
-      confirmLabel: approving ? "Approve placement" : "Reject request",
-      danger: !approving,
+    return run({
+      title:(approving ? "Approve " : "Reject ") + application.full_name + "'s request for " + application.animal.name + "?",
+      message:approving ? "A placement starts on their target date. Other pending requests for this pet will be closed and the applicants notified." : "The applicant will receive your rejection reason. You can reopen the request later.",
+      confirmLabel:approving ? "Confirm Approval" : "Confirm Rejection",danger:!approving,
+      reasonRequired:!approving,initialReason:staffNotes,reasonMaxLength:500,
+    }, async (answer) => {
+      await api.patch('/admin/applications/'+application.id, {status,staff_notes:approving ? staffNotes || null : answer});
+      notify(approving ? application.animal.name + " is now in foster care." : "Request rejected. The applicant was notified."); onChanged();
     });
-
-    if (!confirmed) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await api.patch(`/admin/applications/${application.id}`, {
-        status,
-        staff_notes: staffNotes || null,
-      });
-      notify(approving ? `Approved! ${application.animal.name} is now in foster care.` : "Request rejected. The applicant was notified.");
-      onChanged();
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    } finally {
-      setBusy(false);
-    }
   };
-
-  // UPDATE - undo a rejection
-  const reopen = async () => {
-    const confirmed = await confirm({
-      title: `Reopen ${application.full_name}'s request?`,
-      message: "It goes back to Pending so you can decide again. The applicant will be notified.",
-      confirmLabel: "Reopen request",
-    });
-
-    if (!confirmed) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const response = await api.patch(`/admin/applications/${application.id}/reopen`);
-      notify(response.data.message);
-      onChanged("Pending");
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const reopen = () => run({
+    title:"Reopen " + application.full_name + "'s request for " + application.animal?.name + "?",
+    message:"The application goes back to Pending for review. The applicant will be notified.",confirmLabel:"Reopen Request",
+  }, async () => {
+    const response = await api.patch('/admin/applications/'+application.id+'/reopen'); notify(response.data.message); onChanged("Pending");
+  });
 
   const pending = application.status === "Pending";
 
@@ -91,7 +58,8 @@ function DecisionPanel({ application, onChanged }) {
           placeholder="Shown to the applicant with your decision"
           value={staffNotes}
           onChange={(e) => setStaffNotes(e.target.value)}
-          disabled={!pending}
+          disabled={!pending || busy}
+          maxLength={500}
         />
       </label>
 
@@ -100,7 +68,7 @@ function DecisionPanel({ application, onChanged }) {
           <button type="button" className="btn btn-danger-outline" onClick={() => decide("Rejected")} disabled={busy}>
             Reject
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => decide("Approved")} disabled={busy}>
+          <button type="button" className="btn btn-primary" onClick={() => decide("Approved")} disabled={busy || !application.verification_completed_at || !application.match?.eligible || application.user?.volunteer_profile?.review_status !== "Approved"}>
             Approve placement
           </button>
         </div>
@@ -113,7 +81,7 @@ function DecisionPanel({ application, onChanged }) {
           </p>
           {application.status === "Rejected" && (
             <button type="button" className="btn btn-outline" onClick={reopen} disabled={busy}>
-              ↺ Reopen this request
+              <Icon name="refresh" size={16}/> Reopen this request
             </button>
           )}
         </>
@@ -124,8 +92,9 @@ function DecisionPanel({ application, onChanged }) {
 
 export default function ReviewBoard() {
   const [applications, setApplications] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("oldest");
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -135,9 +104,7 @@ export default function ReviewBoard() {
   useEffect(() => {
     const getApplications = async () => {
       try {
-        const response = await api.get("/admin/applications", {
-          params: { status: statusFilter || undefined, search: search || undefined },
-        });
+        const response = await api.get("/admin/applications");
         setApplications(response.data);
         setLoadError("");
       } catch (error) {
@@ -147,22 +114,26 @@ export default function ReviewBoard() {
       }
     };
 
-    // wait a moment while the admin is still typing
-    const timer = setTimeout(getApplications, 250);
-    return () => clearTimeout(timer);
-  }, [statusFilter, search, reload]);
+    getApplications();
+  }, [reload]);
 
-  // after a decision: refresh the list (optionally jumping to another tab)
-  const handleChanged = (goToStatus) => {
-    setSelectedId(null);
-    if (goToStatus) {
-      setStatusFilter(goToStatus);
-    }
+  // Refresh records without changing the current filters or selection.
+  const handleChanged = () => {
     setReload((count) => count + 1);
   };
 
   // the application shown on the right (first one if nothing is picked)
-  const selected = applications.find((a) => a.id === selectedId) || applications[0] || null;
+  const query = search.trim().toLocaleLowerCase();
+  const shown = applications.filter(application =>
+    (!statusFilter || application.status === statusFilter) &&
+    [application.full_name, application.user?.name, application.user?.email, application.animal?.name]
+      .some(value => (value || "").toLocaleLowerCase().includes(query))
+  ).sort((a, b) => {
+    const order = (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) || a.id - b.id;
+    return sort === "oldest" ? order : -order;
+  });
+  const filtersActive = Boolean(search || statusFilter || sort !== "oldest");
+  const selected = shown.find((a) => a.id === selectedId) || shown[0] || null;
   const profile = selected?.user?.volunteer_profile;
 
   return (
@@ -174,9 +145,10 @@ export default function ReviewBoard() {
         </div>
       </div>
 
+      <ProfileReviews />
       <div className="card filters">
-        <label className="filter-search">
-          <span className="sr-only">Search applications</span>
+        <label className="field filter-search">
+          <span>Search applicants</span>
           <input
             type="search"
             placeholder="Search applicant, email or pet"
@@ -198,21 +170,24 @@ export default function ReviewBoard() {
             </button>
           ))}
         </div>
+        <label className="field">Sort applicants<select aria-label="Sort applicants" value={sort} onChange={event => setSort(event.target.value)}><option value="oldest">Oldest first</option><option value="newest">Newest first</option></select></label>
+        {filtersActive && <button type="button" className="btn btn-outline" onClick={() => {setSearch("");setStatusFilter("");setSort("oldest");}}>Reset</button>}
       </div>
+      {!loading && !loadError && <p className="muted small" role="status">Showing {shown.length} of {applications.length} applicants</p>}
 
       {loading ? (
         <Skeleton rows={2} height={220} />
       ) : loadError ? (
         <LoadError message={loadError} onRetry={() => setReload((count) => count + 1)} />
-      ) : applications.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="card empty">
-          <h2>No applications here</h2>
+          <h2>{applications.length ? "No applicants match your search." : "No applicants yet"}</h2>
           <p className="muted">{search ? "Nothing matches your search." : "New foster requests will appear in this list."}</p>
         </div>
       ) : (
         <div className="review-layout">
           <section className="card queue" aria-label="Queue">
-            {applications.map((application) => (
+            {shown.map((application) => (
               <button
                 type="button"
                 key={application.id}
@@ -254,7 +229,7 @@ export default function ReviewBoard() {
               </div>
 
               <div className="card table-card">
-                <div className="table-scroll">
+                <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable records">
                   <table>
                     <thead>
                       <tr>
@@ -271,7 +246,7 @@ export default function ReviewBoard() {
                           <td>{check.need}</td>
                           <td>{check.home}</td>
                           <td className={check.ok ? "fit-ok" : "fit-no"}>
-                            {check.ok ? "✓ Met" : "✕ Not met"}
+                            <span className="icon-heading"><Icon name={check.ok ? "check" : "x"} size={16}/>{check.ok ? "Met" : "Not met"}</span>
                           </td>
                         </tr>
                       ))}
@@ -306,6 +281,7 @@ export default function ReviewBoard() {
                 </div>
               )}
 
+              <VerificationPanel key={selected.id} application={selected} onChanged={handleChanged} />
               <div className="two-col two-col-even">
                 <div className="card stack-sm">
                   <h3>Applicant&apos;s message</h3>

@@ -1,3 +1,4 @@
+import Icon from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import api, { errorMessage } from "../api/client";
 import { Skeleton } from "./PageStates";
@@ -38,7 +39,7 @@ export default function AnimalHistory({ animal, onClose }) {
       <div className="modal-head">
         <h2 id="history-title">{animal.name}&apos;s history</h2>
         <button type="button" className="modal-close" aria-label="Close" onClick={() => dialogRef.current?.close()}>
-          ×
+          <Icon name="x"/>
         </button>
       </div>
 

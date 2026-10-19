@@ -44,3 +44,16 @@ export function daysUntil(value) {
   today.setHours(0, 0, 0, 0);
   return Math.round((toDate(value).getTime() - today.getTime()) / 86400000);
 }
+
+export function urgencyText(pet) {
+  const days = daysUntil(pet.needed_by);
+  if (days < 0) return 'Overdue';
+  if (days === 0) return 'Needs a home today';
+  return `Needs a home in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+export function defaultUrgencyDeadline() {
+  const date = new Date();
+  date.setDate(date.getDate() + 14);
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}

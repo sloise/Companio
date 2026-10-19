@@ -20,6 +20,7 @@ export const KIDS = [
 ];
 
 export const HOURS_ALONE = [
+  { value: 0, label: "None", hint: "Someone is always home" },
   { value: 4, label: "Under 4 hours" },
   { value: 8, label: "4-8 hours" },
   { value: 12, label: "More than 8 hours" },

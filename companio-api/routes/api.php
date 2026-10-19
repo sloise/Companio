@@ -11,7 +11,10 @@ use App\Http\Controllers\PlacementController;
 use App\Http\Controllers\StaffRequestController;
 use App\Http\Controllers\VolunteerProfileController;
 use App\Http\Middleware\EnsureAdmin;
+use App\Http\Middleware\EnsureSuperAdmin;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/privacy-notice', [\App\Http\Controllers\PrivacyNoticeController::class, 'show']);
 
 // ---------- Public ----------
 // throttle:10,1 = at most 10 tries per minute from one address (stops password guessing)
@@ -24,11 +27,20 @@ Route::middleware('throttle:10,1')->group(function () {
 
 // ---------- Logged-in users ----------
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/conversations', [\App\Http\Controllers\ConversationController::class, 'index']);
+    Route::post('/placements/{placement}/conversation', [\App\Http\Controllers\ConversationController::class, 'start']);
+    Route::get('/conversations/{conversation}', [\App\Http\Controllers\ConversationController::class, 'show']);
+    Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\ConversationController::class, 'send'])->middleware('throttle:30,1');
+    Route::post('/conversations/{conversation}/read', [\App\Http\Controllers\ConversationController::class, 'read']);
+    Route::get('/messages/{message}/photo', [\App\Http\Controllers\ConversationController::class, 'photo']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'read']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
     // Foster volunteer
     Route::get('/profile', [VolunteerProfileController::class, 'show']);
+    Route::post('/profile/photo', [VolunteerProfileController::class, 'updatePhoto']);
+    Route::delete('/profile/photo', [VolunteerProfileController::class, 'deletePhoto']);
     Route::put('/profile', [VolunteerProfileController::class, 'update']);
     Route::get('/matches', [MatchController::class, 'index']);
     Route::get('/matches/{animal}', [MatchController::class, 'show']);
@@ -50,14 +62,22 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/counts', [DashboardController::class, 'counts']);
         Route::apiResource('animals', AnimalController::class);
         Route::get('/animals/{animal}/history', [AnimalController::class, 'history']);
+        Route::get('/profiles/pending', [VolunteerProfileController::class, 'pending']);
+        Route::patch('/profiles/{profile}/review', [VolunteerProfileController::class, 'review']);
+        Route::get('/applications/{application}/documents/{key}', [FosterApplicationController::class, 'document']);
+        Route::patch('/applications/{application}/schedule', [FosterApplicationController::class, 'schedule']);
+        Route::patch('/applications/{application}/verify', [FosterApplicationController::class, 'verify']);
         Route::get('/applications', [FosterApplicationController::class, 'index']);
         Route::patch('/applications/{application}', [FosterApplicationController::class, 'decide']);
         Route::patch('/applications/{application}/reopen', [FosterApplicationController::class, 'reopen']);
         Route::get('/placements', [PlacementController::class, 'index']);
         Route::patch('/placements/{placement}', [PlacementController::class, 'update']);
         Route::delete('/placements/{placement}/request', [PlacementController::class, 'clearRequest']);
-        Route::get('/staff-requests', [StaffRequestController::class, 'index']);
-        Route::patch('/staff-requests/{user}', [StaffRequestController::class, 'approve']);
-        Route::delete('/staff-requests/{user}', [StaffRequestController::class, 'decline']);
+        Route::middleware(EnsureSuperAdmin::class)->group(function () {
+            Route::get('/staff-requests/{user}/id', [StaffRequestController::class, 'document']);
+            Route::get('/staff-requests', [StaffRequestController::class, 'index']);
+            Route::patch('/staff-requests/{user}', [StaffRequestController::class, 'approve']);
+            Route::delete('/staff-requests/{user}', [StaffRequestController::class, 'decline']);
+        });
     });
 });

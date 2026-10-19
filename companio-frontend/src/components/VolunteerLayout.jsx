@@ -1,8 +1,10 @@
+import MessageLink from "./MessageLink";
+import Icon from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/auth";
+import UserAvatar from "./UserAvatar";
 import Logo from "./Logo";
-import NotificationBell from "./NotificationBell";
 
 export default function VolunteerLayout() {
   const { user, logout } = useAuth();
@@ -34,29 +36,23 @@ export default function VolunteerLayout() {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/login");
+    navigate("/", { replace: true });
   };
 
-  const initials = user.name
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 
   return (
-    <div className="app-shell">
+    <div className="app-shell"><a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="topbar">
         <div className="topbar-inner">
           <Logo light />
 
           <nav className="topnav" aria-label="Main">
-            <NavLink to="/matches">Matches</NavLink>
-            <NavLink to="/applications" data-tour="nav-applications">Applications</NavLink>
-            <NavLink to="/questionnaire" data-tour="nav-profile">Home profile</NavLink>
+            <NavLink to="/matches"><Icon name="paw" size={17}/> Matches</NavLink>
+            <NavLink to="/applications" data-tour="nav-applications"><Icon name="clipboard" size={17}/> Applications</NavLink>
+            <NavLink to="/profile" data-tour="nav-profile"><Icon name="user" size={17}/> My profile</NavLink>
           </nav>
 
-          <NotificationBell />
+          <MessageLink />
 
           <div className="user-menu" ref={menuRef}>
             <button
@@ -67,7 +63,7 @@ export default function VolunteerLayout() {
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(!menuOpen)}
             >
-              {initials}
+              <UserAvatar user={user} />
             </button>
 
             {menuOpen && (
@@ -95,7 +91,7 @@ export default function VolunteerLayout() {
         </div>
       </header>
 
-      <main className="page">
+      <main className="page" id="main-content" tabIndex={-1}>
         <Outlet />
       </main>
     </div>

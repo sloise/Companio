@@ -1,3 +1,6 @@
+import ValidatedForm from "../components/ValidatedForm";
+import Icon from "../components/Icon";
+import useConfirmedAction from "../utils/useConfirmedAction";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { errorMessage } from "../api/client";
@@ -21,48 +24,25 @@ function whenText(date) {
 
 // Shown while the pet lives with the foster: what "Fostering" means + adopt / return requests
 function FosterPanel({ application, onChanged }) {
-  const { notify, confirm } = useFeedback();
+  const { notify } = useFeedback();
   const placement = application.placement;
   const petName = application.animal?.name || "your foster pet";
 
   const [choosing, setChoosing] = useState(null); // "adopt" | "return" | null
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
+  const {run,busy} = useConfirmedAction();
 
   // UPDATE - tell the shelter how you'd like the foster period to end
   const sendRequest = async (e) => {
     e.preventDefault();
-    setBusy(true);
-    try {
-      const response = await api.patch(`/my-placements/${placement.id}/request`, { type: choosing, note: note || null });
-      notify(response.data.message);
-      setChoosing(null);
-      setNote("");
-      onChanged();
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // DELETE - changed your mind
-  const cancelRequest = async () => {
-    const confirmed = await confirm({
-      title: "Cancel your request?",
-      message: `${petName} stays with you as a foster, and you can send a new request any time.`,
-      confirmLabel: "Cancel request",
+    await run({title:(choosing === "adopt" ? "Request adoption of " : "Request return of ") + petName + "?",message:"Your request and note will be sent to shelter staff. The animal remains in your foster care until the shelter confirms the next steps.",confirmLabel:choosing === "adopt" ? "Send Adoption Request" : "Send Return Request"}, async () => {
+      const response = await api.patch('/my-placements/'+placement.id+'/request',{type:choosing,note:note || null});
+      notify(response.data.message);setChoosing(null);setNote("");onChanged();
     });
-    if (!confirmed) return;
-
-    try {
-      const response = await api.delete(`/my-placements/${placement.id}/request`);
-      notify(response.data.message, "info");
-      onChanged();
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    }
   };
+  const cancelRequest = () => run({title:"Cancel your request for " + petName + "?",message:petName + " stays with you as a foster. You can send a new request later.",confirmLabel:"Cancel Request"}, async () => {
+    const response = await api.delete('/my-placements/'+placement.id+'/request');notify(response.data.message,"info");onChanged();
+  });
 
   const due = placement.expected_return_date;
   const late = due && daysUntil(due) < 0;
@@ -70,7 +50,7 @@ function FosterPanel({ application, onChanged }) {
   return (
     <div className="foster-panel">
       <p>
-        <strong>🏡 {petName} is living with you.</strong> Fostering means you care for {petName} at home
+        <strong><Icon name="home" size={18}/> {petName} is living with you.</strong> Fostering means you care for {petName} at home
         until they&apos;re adopted or come back to the shelter.
         {due && (
           <>
@@ -83,15 +63,15 @@ function FosterPanel({ application, onChanged }) {
         <div className={`foster-request foster-request-${placement.foster_request}`}>
           <p>
             <strong>
-              {placement.foster_request === "adopt" ? `🏠 You asked to adopt ${petName}` : `↩ You asked to return ${petName}`}
+              {placement.foster_request === "adopt" ? ` You asked to adopt ${petName}` : ` You asked to return ${petName}`}
             </strong>{" "}
             · {formatDate(placement.foster_requested_at)}. Waiting for the shelter to confirm.
           </p>
           {placement.foster_request_note && <p className="muted small">Your note: “{placement.foster_request_note}”</p>}
-          <button type="button" className="link-btn" onClick={cancelRequest}>Cancel request</button>
+          <button type="button" className="link-btn" disabled={busy} onClick={cancelRequest}>Cancel request</button>
         </div>
       ) : choosing ? (
-        <form className="foster-request-form" onSubmit={sendRequest}>
+        <ValidatedForm className="foster-request-form" onSubmit={sendRequest}>
           <label className="field">
             {choosing === "adopt"
               ? `Anything the shelter should know about adopting ${petName}? (optional)`
@@ -99,22 +79,22 @@ function FosterPanel({ application, onChanged }) {
             <textarea rows="2" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
           </label>
           <div className="foster-actions">
-            <button type="button" className="btn btn-outline btn-sm" onClick={() => { setChoosing(null); setNote(""); }}>
+            <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => { setChoosing(null); setNote(""); }}>
               Back
             </button>
             <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
               {busy ? "Sending..." : choosing === "adopt" ? "Send adoption request" : "Send return request"}
             </button>
           </div>
-        </form>
+        </ValidatedForm>
       ) : (
         <div className="foster-actions">
           <span className="muted small">When the foster period ends, let the shelter know:</span>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setChoosing("adopt")}>
-            🏠 I&apos;d like to adopt {petName}
+            <Icon name="heart" size={17}/> I&apos;d like to adopt {petName}
           </button>
           <button type="button" className="btn btn-outline btn-sm" onClick={() => setChoosing("return")}>
-            ↩ I need to return {petName}
+            <Icon name="refresh" size={17}/> I need to return {petName}
           </button>
         </div>
       )}
@@ -150,7 +130,7 @@ function timelineSteps(application) {
       if (placement?.status === "Returned") {
         steps.push({ label: "Returned to shelter", date: placement.updated_at, state: "done" });
       } else if (placement?.status === "Adopted") {
-        steps.push({ label: "Adopted 🎉", date: placement.updated_at, state: "done" });
+        steps.push({ label: "Adopted ", date: placement.updated_at, state: "done" });
       } else if (placement?.foster_request === "adopt") {
         steps.push({ label: "Adoption requested", date: placement.foster_requested_at, state: "current" });
       } else if (placement?.foster_request === "return") {
@@ -172,8 +152,9 @@ function timelineSteps(application) {
 }
 
 export default function MyApplications() {
-  const { notify, confirm } = useFeedback();
+  const { notify } = useFeedback();
 
+  const {run,busy} = useConfirmedAction();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -198,26 +179,9 @@ export default function MyApplications() {
   }, [reload]);
 
   // UPDATE - cancel a pending request
-  const withdraw = async (application) => {
-    const confirmed = await confirm({
-      title: `Withdraw your request for ${application.animal?.name}?`,
-      message: "The shelter will stop reviewing it. You can send a new request later if the pet is still available.",
-      confirmLabel: "Withdraw request",
-      danger: true,
-    });
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      const response = await api.patch(`/my-applications/${application.id}/withdraw`);
-      notify(response.data.message);
-      setReload((count) => count + 1);
-    } catch (error) {
-      notify(errorMessage(error), "error");
-    }
-  };
+  const withdraw = (application) => run({title:"Withdraw your request for " + application.animal?.name + "?",message:"The shelter will stop reviewing this application. You may apply again if the animal is still available.",confirmLabel:"Withdraw Request",danger:true},async () => {
+    const response = await api.patch('/my-applications/'+application.id+'/withdraw');notify(response.data.message);setReload((v)=>v+1);
+  });
 
   if (loading) {
     return <Skeleton rows={3} height={150} />;
@@ -276,11 +240,12 @@ export default function MyApplications() {
               </div>
             </div>
 
+            {application.screening && <p className="notice notice-info">{application.screening.appointment_status || 'Requested'} {application.screening.interview_type === 'shelter_visit' ? 'shelter visit' : 'interview'}: {new Date(application.screening.interview_at).toLocaleString()}. {application.screening.appointment_status !== 'Confirmed' && 'Waiting for shelter confirmation.'}</p>}
             <ol className="timeline" aria-label="Request progress">
               {timelineSteps(application).map((step) => (
                 <li key={step.label} className={`timeline-step timeline-${step.state}`}>
                   <span className="timeline-dot" aria-hidden="true">
-                    {step.state === "done" ? "✓" : step.state === "stopped" ? "✕" : ""}
+                    {step.state === "done" ? <Icon name="check" size={12}/> : step.state === "stopped" ? <Icon name="x" size={12}/> : ""}
                   </span>
                   <span className="timeline-label">
                     {step.label}
@@ -299,7 +264,7 @@ export default function MyApplications() {
 
             {application.status === "Pending" && (
               <div className="application-actions">
-                <button type="button" className="btn btn-danger btn-sm" onClick={() => withdraw(application)}>
+                <button type="button" className="btn btn-danger btn-sm" disabled={busy} onClick={() => withdraw(application)}>
                   Withdraw request
                 </button>
               </div>

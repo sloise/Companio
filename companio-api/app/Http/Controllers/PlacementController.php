@@ -30,12 +30,28 @@ class PlacementController extends Controller
     // Returned => the animal is available again, Adopted => the animal is adopted
     public function update(Request $request, Placement $placement)
     {
+        return DB::transaction(function () use ($request, $placement) {
+            $placement->animal()->lockForUpdate()->firstOrFail();
+            $placement = $placement->newQuery()->lockForUpdate()->findOrFail($placement->id);
+
+            return $this->updateLocked($request, $placement);
+        });
+    }
+
+    private function updateLocked(Request $request, Placement $placement)
+    {
         $validated = $request->validate([
             'status' => 'required|in:Active,Returned,Adopted',
             'expected_return_date' => 'nullable|date',
             'notes' => 'nullable|string|max:500',
         ]);
 
+        if ($validated['status'] !== $placement->status && $placement->status !== 'Active') {
+            return response()->json(['message' => 'Ended placements cannot be reopened through status edits.'], 422);
+        }
+        if ($validated['status'] === 'Adopted' && $placement->status !== 'Adopted' && $placement->foster_request !== 'adopt') {
+            return response()->json(['message' => 'A formal adoption request from this foster is required.'], 422);
+        }
         $oldStatus = $placement->status;
         $admin = $request->user();
 
@@ -63,9 +79,9 @@ class PlacementController extends Controller
                 AnimalEvent::log($animal->id, "{$admin->name} marked {$animal->name} as returned to the shelter by {$fosterName}", $admin->id);
                 $message = "Thank you for fostering {$animal->name}! The shelter recorded their return.";
             } elseif ($validated['status'] === 'Adopted') {
-                AnimalEvent::log($animal->id, "{$admin->name} marked {$animal->name} as adopted" . ($askedToAdopt ? " by {$fosterName}" : ''), $admin->id);
+                AnimalEvent::log($animal->id, "{$admin->name} marked {$animal->name} as adopted".($askedToAdopt ? " by {$fosterName}" : ''), $admin->id);
                 $message = $askedToAdopt
-                    ? "Congratulations! Your adoption of {$animal->name} is confirmed. 🎉"
+                    ? "Congratulations! Your adoption of {$animal->name} is confirmed."
                     : "{$animal->name} has been adopted! Thank you for fostering them.";
             } else {
                 AnimalEvent::log($animal->id, "{$admin->name} set the placement with {$fosterName} back to active", $admin->id);
@@ -86,7 +102,17 @@ class PlacementController extends Controller
     // DELETE - "keep fostering": the shelter turns down the foster's adopt / return request for now
     public function clearRequest(Request $request, Placement $placement)
     {
-        if (! $placement->foster_request) {
+        return DB::transaction(function () use ($request, $placement) {
+            $placement->animal()->lockForUpdate()->firstOrFail();
+            $placement = $placement->newQuery()->lockForUpdate()->findOrFail($placement->id);
+
+            return $this->clearRequestLocked($request, $placement);
+        });
+    }
+
+    private function clearRequestLocked(Request $request, Placement $placement)
+    {
+        if ($placement->status !== 'Active' || ! $placement->foster_request) {
             return response()->json(['message' => 'There is no request to answer.'], 422);
         }
 
@@ -122,6 +148,16 @@ class PlacementController extends Controller
     // UPDATE - the foster asks to adopt or to return the pet
     public function requestEnd(Request $request, Placement $placement)
     {
+        return DB::transaction(function () use ($request, $placement) {
+            $placement->animal()->lockForUpdate()->firstOrFail();
+            $placement = $placement->newQuery()->lockForUpdate()->findOrFail($placement->id);
+
+            return $this->requestEndLocked($request, $placement);
+        });
+    }
+
+    private function requestEndLocked(Request $request, Placement $placement)
+    {
         $validated = $request->validate([
             'type' => 'required|in:adopt,return',
             'note' => 'nullable|string|max:500',
@@ -135,6 +171,9 @@ class PlacementController extends Controller
             return response()->json(['message' => 'This placement has already ended.'], 422);
         }
 
+        if ($placement->foster_request) {
+            return response()->json(['message' => 'An open request already exists. Cancel it before submitting another.'], 409);
+        }
         $animal = $placement->animal;
 
         $placement->update([
@@ -153,8 +192,8 @@ class PlacementController extends Controller
 
         return response()->json([
             'message' => $validated['type'] === 'adopt'
-                ? "Adoption request sent! The shelter will contact you about the next steps."
-                : "Return request sent. The shelter will contact you to arrange it.",
+                ? 'Adoption request sent! The shelter will contact you about the next steps.'
+                : 'Return request sent. The shelter will contact you to arrange it.',
             'placement' => $placement->fresh(),
         ]);
     }
@@ -162,12 +201,26 @@ class PlacementController extends Controller
     // DELETE - the foster changes their mind
     public function cancelRequest(Request $request, Placement $placement)
     {
+        return DB::transaction(function () use ($request, $placement) {
+            $placement->animal()->lockForUpdate()->firstOrFail();
+            $placement = $placement->newQuery()->lockForUpdate()->findOrFail($placement->id);
+
+            return $this->cancelRequestLocked($request, $placement);
+        });
+    }
+
+    private function cancelRequestLocked(Request $request, Placement $placement)
+    {
         if ($placement->application?->user_id !== $request->user()->id) {
             return response()->json(['message' => 'This is not your foster placement.'], 403);
         }
 
         if ($placement->status !== 'Active' || ! $placement->foster_request) {
             return response()->json(['message' => 'There is no open request to cancel.'], 422);
+        }
+
+        if ($placement->status !== 'Active') {
+            return response()->json(['message' => 'This placement has already ended.'], 422);
         }
 
         $placement->update([
