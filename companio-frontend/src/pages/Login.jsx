@@ -218,9 +218,6 @@ export default function Login() {
             required
           />
           {isRegister && <span className="field-hint">At least 8 characters</span>}
-          {!isRegister && (
-            <Link className="field-hint forgot-link" to="/forgot-password">Forgot password?</Link>
-          )}
         </label>
 
         <button type="submit" className="btn btn-primary btn-xl" disabled={busy}>
